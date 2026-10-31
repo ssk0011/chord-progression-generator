@@ -1865,6 +1865,25 @@ async function breakAway() {
   check('break away: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
+async function tuneSuite() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(URL_);
+  const conv = (m, a) => page.evaluate(([m, a]) => JSON.stringify(tuneFromBeats(m, a)), [m, a]);
+  const trim = l => { const o = l.map(x => x ?? null); while (o.length && o[o.length - 1] == null) o.pop(); return o; };
+  const rt = (m, a) => page.evaluate(([m, a]) => beatsFromTune(tuneFromBeats(m, a)), [m, a]);
+  check('tune: beat notes convert to timed notes', await conv([60, -1, null, 62], []) === '[{"t":0,"d":24,"m":60},{"t":36,"d":12,"m":62}]');
+  check('tune: an "and" splits the beat', await conv([60], [64]) === '[{"t":0,"d":6,"m":60},{"t":6,"d":6,"m":64}]');
+  check('tune: a hold carries the note on the "and"', await conv([60, -1], [64]) === '[{"t":0,"d":6,"m":60},{"t":6,"d":18,"m":64}]');
+  check('tune: a hold after a rest becomes a rest', await conv([null, -1, 62], []) === '[{"t":24,"d":12,"m":62}]');
+  check('tune: repeated pitches stay separate notes', JSON.parse(await conv([60, 60], [])).length === 2);
+  const cases = [[[60, -1, null, 62, 64, -1, -1, null, 67, 65, null, 64], [null, 64, null, 65, null, null, null, null, 69]], [[69, -1, -1, 67, 65, -1, 65, null, 64, -1, 62, -1], [null, null, null, null, 67]], [[null, null, 60], [61]]];
+  let same = true; for (const [m, a] of cases) { const r = await rt(m, a); if (JSON.stringify(trim(r.mel)) !== JSON.stringify(trim(m)) || JSON.stringify(trim(r.and)) !== JSON.stringify(trim(a))) same = false; }
+  check('tune: holds, rests and split beats round-trip', same);
+  check('tune: notes past the chart survive', (await rt([60, 62, 64, 65, 67], [])).mel.length === 5);
+  check('tune: sanitize drops bad notes', await page.evaluate(() => JSON.stringify(sanitizeTune([{ t: 0, d: 12, m: 60 }, { t: -1, d: 12, m: 60 }, { t: 0, d: 0, m: 60 }, { t: 0, d: 12, m: 200 }, null]))) === '[{"t":0,"d":12,"m":60}]');
+  check('tune: no console errors', !page.errors.length, page.errors.join(' | '));
+  await ctx.close();
+}
 async function searchSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(URL_);
@@ -2186,6 +2205,7 @@ try {
   await dragSuite();
   await launchSuite();
   await breakAway();
+  await tuneSuite();
   await menus();
   await layout();
   await hardening();

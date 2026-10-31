@@ -1571,6 +1571,17 @@ let melody=[], melAnd=[];
 function sanitizeMelody(list){ if(!Array.isArray(list)||list.length>4096) return null;
   return list.map((x,i)=>Number.isInteger(x)&&x>=21&&x<=108?x:x===-1&&i>0?-1:null); }
 function sanitizeMelAnd(list){ if(!Array.isArray(list)||list.length>4096) return null; return list.map(x=>Number.isInteger(x)&&x>=21&&x<=108?x:null); }
+/* the tune is a list of timed notes {t,d,m}: start and length in ticks, and MIDI pitch. 12 ticks a counted beat fits 8ths, 16ths and triplets exactly */
+const TICKS=12;
+function sanitizeTune(list){ if(!Array.isArray(list)) return null;
+  return list.filter(n=>n&&Number.isInteger(n.t)&&n.t>=0&&Number.isInteger(n.d)&&n.d>=1&&Number.isInteger(n.m)&&n.m>=21&&n.m<=108).map(({t,d,m})=>({t,d,m})).sort((a,b)=>a.t-b.t).slice(0,4096); }
+/* the older form: one entry a beat (a pitch, -1 to hold, or nothing), and a second list for notes on the "and" */
+function tuneFromBeats(mel,and){ const out=[]; let cur=null; const end=t=>{ if(cur){ cur.d=t-cur.t; cur=null; } }, start=(t,m)=>{ end(t); cur={t,d:0,m}; out.push(cur); }, len=Math.max(mel.length,and.length);
+  for(let b=0;b<len;b++){ const x=mel[b]; if(x>0) start(b*TICKS,x); else if(x!==-1) end(b*TICKS); if(and[b]>0) start(b*TICKS+TICKS/2,and[b]); }
+  end(len*TICKS); return out; }
+function beatsFromTune(tune){ const mel=[], and=[];
+  tune.forEach(n=>{ const b=Math.floor(n.t/TICKS); if(n.t%TICKS) and[b]=n.m; else mel[b]=n.m; for(let k=b+1;k*TICKS<n.t+n.d;k++) mel[k]=-1; });
+  return {mel:Array.from(mel,x=>x??null),and:Array.from(and,x=>x??null)}; }
 const hasAnd=()=>melAnd.some(x=>x>0);
 let _id=1; const uid=()=>'c'+(_id++);
 
