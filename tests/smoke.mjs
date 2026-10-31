@@ -797,7 +797,7 @@ async function melodyLane() {
   const kept = await page.evaluate(() => { const code = shareCode(); melody = []; applyShare(JSON.parse(atob(code.replace(/-/g, '+').replace(/_/g, '/')))); const viaShare = melody[0]; const it = newItem('m', curSnap()); melody = []; libOpen(it); return { viaShare, viaLib: melody[0] }; });
   check('melody: share links and the Library carry it', kept.viaShare === 64 && kept.viaLib === 64, JSON.stringify(kept));
   check('melody: transposing moves it', await page.evaluate(() => { transpose(2); return melody[0] === 66; }));
-  await page.evaluate(() => { revealEl(document.querySelector('#melIn')); document.querySelector('#melIn').value = 'G A B C'; laneBar = 0; });
+  await page.evaluate(() => { revealEl(document.querySelector('#melIn')); document.querySelector('#melIn').value = 'G A B C'; sel = chords[0].id; melSel = null; laneBar = null; });
   await page.click('#melToLane');
   check('melody: Put in melody lane writes the typed tune from the chosen bar', await page.evaluate(() => mod(melody[0]) === 7 && mod(melody[3]) === 0 && /in the lane/.test(document.querySelector('#toast').textContent)));
   await page.evaluate(() => { const c = document.querySelector('#chartTools'); revealEl(document.querySelector('#clearChart')); });
@@ -1926,7 +1926,7 @@ async function tuneSuite() {
 async function gridSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(URL_);
-  const start = (txt = 'C | G', list = [{ t: 0, d: 3, m: 60 }, { t: 3, d: 3, m: 62 }, { t: 12, d: 12, m: 64 }]) => page.evaluate(([x, l]) => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = true; S.melGrid = 'beat'; S.zoomBars = 0; S.linkForm = false; S.foldForm = false; chords = parseProg(x).chords; tune = l; sel = chords[0].id; melSel = null; gridSel = null; laneBar = null; commit(); }, [txt, list]);
+  const start = (txt = 'C | G', list = [{ t: 0, d: 3, m: 60 }, { t: 3, d: 3, m: 62 }, { t: 12, d: 12, m: 64 }]) => page.evaluate(([x, l]) => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = true; S.melGrid = 'beat'; S.zoomBars = 0; S.linkForm = false; S.foldForm = false; chords = parseProg(x).chords; tune = l; sel = chords[0].id; melSel = null; gridSel = null; laneBar = null; commit(); $('#melIn').value = ''; }, [txt, list]);
   const has = (t, d, m) => page.evaluate(([t, d, m]) => tune.some(n => n.t === t && n.d === d && n.m === m), [t, d, m]);
   await start(); await page.evaluate(() => melSet(1, 67, false, 0));
   check('grid: pad edits leave finer notes alone', await has(0, 3, 60) && await has(3, 3, 62));
@@ -2012,6 +2012,55 @@ async function gridSuite() {
   await start('C | G', []);
   await page.evaluate(() => { sel = null; melSel = null; gridSel = null; laneBar = null; commit(); $('#melIn').value = 'C D'; $('#melIn').dispatchEvent(new Event('input')); });
   check('grid: with nothing selected it uses bar 1', (await page.textContent('#melToLaneRead')).includes('from bar 1'));
+  // review fixes
+  const baStart = async list => { await start('C | G | Am | F', list); await page.evaluate(() => { BA = null; baToggle(); }); };
+  const baDo = w => page.evaluate(w => { const x = baIdeas()[0]; const li = document.querySelector('#breakaway li'); li.querySelector(`[data-ba="${w}"]`).click(); return x.i; }, w);
+  await baStart([[0, 12, 64], [36, 15, 72], [51, 3, 60], [54, 6, 62]].map(([t, d, m]) => ({ t, d, m })));
+  await baDo('flip');
+  check('grid: Flip leaves the next bar alone', await has(51, 3, 60) && await has(54, 6, 62) && await page.evaluate(() => tune.filter(n => n.t >= 48).length === 3), await page.evaluate(() => JSON.stringify(tune)));
+  await baStart([[0, 3, 60], [3, 3, 62], [6, 3, 64], [9, 3, 65]].map(([t, d, m]) => ({ t, d, m })));
+  await baDo('flip');
+  check('grid: Flip keeps the rhythm inside the bar', await page.evaluate(() => tune.map(n => n.t + ':' + n.d).join() === '0:3,3:3,6:3,9:3'), await page.evaluate(() => JSON.stringify(tune)));
+  await baStart([[0, 4, 60], [4, 4, 62], [8, 4, 64], [36, 15, 72], [51, 3, 60]].map(([t, d, m]) => ({ t, d, m })));
+  await baDo('late');
+  check('grid: Start a beat later keeps triplets and the next bar', await has(12, 4, 60) && await has(16, 4, 62) && await has(20, 4, 64) && await has(51, 3, 60), await page.evaluate(() => JSON.stringify(tune)));
+  await page.evaluate(() => { BA = null; baStore(); commit(); });
+  await start('C | G', []); await page.evaluate(() => { S.melGrid = '4'; gridSel = { t: 3 }; commit(); renderMelPad(); });
+  await page.selectOption('#gridSize', '2');
+  check('grid: changing grid snaps an empty cursor to a slot', await page.evaluate(() => gridSel.t === 0));
+  await start('C | G', [{ t: 0, d: 3, m: 60 }, { t: 3, d: 3, m: 62 }]); await page.evaluate(() => { S.melGrid = '2'; gridSel = { t: 0 }; commit(); renderMelPad(); });
+  await page.focus('[data-gn="0"]'); await page.keyboard.press('ArrowRight');
+  check('grid: arrows stop on an off-grid note', await page.evaluate(() => gridSel.t) === 3);
+  await page.click('[data-gn="0"]'); await page.focus('[data-gn="3"]'); await page.keyboard.press('e');
+  check('grid: keys act on the focused note', await page.evaluate(() => mod(tune[1].m) === 4 && mod(tune[0].m) === 0));
+  await start('C', []); await page.evaluate(() => { S.melGrid = '4'; gridSel = { t: 45 }; commit(); renderMelPad(); }); await page.click('[data-gpn="0"]');
+  check('grid: the last slot keeps the cursor on the grid', await page.evaluate(() => gridSel.t) === 45 && await page.evaluate(() => !!document.querySelector('[data-gn="45"].cur')));
+  await start('[A]\nC\n[A 2]\nC', [{ t: 0, d: 12, m: 60 }]); await page.evaluate(() => { S.foldForm = true; S.melGrid = '4'; tune = []; gridSel = { t: 45 }; commit(); gridStep(1); });
+  check('grid: arrows into a folded repeat open it', await page.locator('[data-gt="48"]').count() === 1);
+  await start('C | G', [{ t: 0, d: 12, m: 60 }]); await page.evaluate(() => { S.melGrid = '4'; gridSel = { t: 30 }; commit(); }); await page.focus('[data-gt="30"]'); await page.keyboard.press(']');
+  check('grid: sharps on an empty slot leave far notes alone', await page.evaluate(() => tune[0].m) === 60);
+  await start('C | G | Am | F | C | G | Am | F', []);
+  await page.evaluate(() => { $('#melIn').value = 'C D'; });
+  await page.click(`.slot[data-id="${await page.evaluate(() => chords[4].id)}"]`);
+  await page.evaluate(() => { sel = chords[0].id; renderAll(); });
+  check('grid: moving the selection updates where a tune goes', (await page.textContent('#melToLaneRead')).includes('from bar 1'), await page.textContent('#melToLaneRead'));
+  await page.evaluate(() => { chords = []; tune = []; sel = null; commit(); $('#melIn').value = 'C D'; document.querySelector('#melToLane').click(); });
+  check('grid: an empty chart refuses the tune honestly', (await page.textContent('#melToLaneRead')).includes('Add chords') && await page.evaluate(() => tune.length) === 0);
+  await start('[A]\nC | C\n[B]\nG | G', [{ t: 84, d: 24, m: 68 }]); await page.evaluate(() => repeatSection(0, 'after'));
+  check('grid: a note held over a section edge stays one note', await has(180, 24, 68), await page.evaluate(() => JSON.stringify(tune)));
+  await start('C | G', [{ t: 3, d: 3, m: 60 }]); await page.evaluate(() => { S.melGrid = '2'; });
+  check('grid: moving a fine note changes the play signature', await page.evaluate(() => { const a = playSig(); tune = [{ t: 4, d: 2, m: 60 }]; return a !== playSig(); }));
+  await page.evaluate(() => { document.querySelector('#xmlExport').click(); });
+  await page.waitForTimeout(300);
+  check('grid: notation export says finer notes are left out', /finer/.test(await page.textContent('#toast')), await page.textContent('#toast'));
+  await start('C | G | Am | F', []); await page.evaluate(() => { S.zoomBars = 1; S.showMel = false; commit(); });
+  check('grid: zoom needs the lane on', await page.evaluate(() => barsPerRow() > 1));
+  await page.evaluate(() => { S.zoomBars = 0; S.showMel = true; commit(); });
+  { const { ctx: c2, page: p2 } = await openPage({ viewport: { width: 390, height: 844 } }); await p2.goto(URL_);
+    await p2.evaluate(() => { S.showMel = true; S.melGrid = 'beat'; chords = parseProg('C').chords; tune = [{ t: 0, d: 3, m: 60 }]; commit(); });
+    check('grid: fine notes are usable on a phone in Quarters', await p2.evaluate(() => document.querySelector('.gnote').getBoundingClientRect().width) >= 24); 
+    await p2.evaluate(() => { S.melGrid = '4'; S.meter = '7/8'; chords = parseProg('C').chords; gridSel = { t: 0 }; commit(); renderMelPad(); for (let i = 0; i < 24; i++) gridStep(1); });
+    check('grid: stepping keeps the cursor in view on a phone', await p2.evaluate(() => { const r = document.querySelector('.gslot.cur').getBoundingClientRect(); return r.right <= innerWidth && r.left >= 0; })); await c2.close(); }
   check('grid: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
