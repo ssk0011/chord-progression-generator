@@ -1582,6 +1582,12 @@ function tuneFromBeats(mel,and){ const out=[]; let cur=null; const end=t=>{ if(c
 function beatsFromTune(tune){ const mel=[], and=[];
   tune.forEach(n=>{ const b=Math.floor(n.t/TICKS); if(n.t%TICKS) and[b]=n.m; else mel[b]=n.m; for(let k=b+1;k*TICKS<n.t+n.d;k++) mel[k]=-1; });
   return {mel:Array.from(mel,x=>x??null),and:Array.from(and,x=>x??null)}; }
+/* any saved form of a tune: the timed list, a share link's flat list, or the older beat lists */
+function readTune(d){ if(!d) return []; if(Array.isArray(d.tune)) return sanitizeTune(d.tune)||[];
+  if(Array.isArray(d.tn)){ const out=[]; for(let i=0;i+2<d.tn.length&&i<12288;i+=3) out.push({t:d.tn[i],d:d.tn[i+1],m:d.tn[i+2]}); return sanitizeTune(out)||[]; }
+  return tuneFromBeats(sanitizeMelody(d.melody||d.mel)||[],sanitizeMelAnd(d.melAnd||d.ma)||[]); }
+const tuneOf=x=>tuneFromBeats(x.melody,x.melAnd), tuneOfChart=()=>tuneFromBeats(melody,melAnd);
+function loadTune(d){ const b=beatsFromTune(readTune(d)); melody=b.mel; melAnd=b.and; }
 const hasAnd=()=>melAnd.some(x=>x>0);
 let _id=1; const uid=()=>'c'+(_id++);
 
@@ -2851,7 +2857,7 @@ function rerenderDetailKeepScroll(){ const sc=$('#detail .shapes')?.scrollLeft||
 
 /* ============ state & rendering ============ */
 const $=s=>document.querySelector(s);
-function snapshot(){ return JSON.stringify({S,chords,sel,melody,melAnd}); }
+function snapshot(){ return JSON.stringify({v:2,S,chords,sel,tune:tuneOfChart()}); }
 function pushHist(){ hist.push(snapshot()); if(hist.length>60) hist.shift(); }
 function save(){ try{ localStorage.setItem('changes-v1',snapshot()); }catch(e){} }
 function commit(){ syncRepeats(); renderAll(); save(); }
@@ -3240,12 +3246,12 @@ function renderFormBar(){
 const BA_KEY='changes-breakaway-v1';
 let BA=null, baNow=null, baHearing=false;
 function baLoad(){ try{ const d=JSON.parse(localStorage.getItem(BA_KEY)||'null'); if(!d) return; const list=sanitizeChords(d.chords); if(!list||!list.length) return;
-  BA={S:sanitizeS(pickS(d.S)),chords:list,melody:sanitizeMelody(d.melody)||[],melAnd:sanitizeMelAnd(d.melAnd)||[]}; }catch(e){} }
-function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({S:BA.S,chords:BA.chords.map(({id,...c})=>c),melody:BA.melody,melAnd:BA.melAnd})); else localStorage.removeItem(BA_KEY); }catch(e){} }
+  const b=beatsFromTune(readTune(d)); BA={S:sanitizeS(pickS(d.S)),chords:list,melody:b.mel,melAnd:b.and}; }catch(e){} }
+function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({v:2,S:BA.S,chords:BA.chords.map(({id,...c})=>c),tune:tuneOf(BA)})); else localStorage.removeItem(BA_KEY); }catch(e){} }
 function baToggle(){
   if(BA){ const old=BA; if(baHearing) stopAll(); BA=null; baStore(); renderAll(); toast('Stopped comparing. The original is gone from here.',{label:'Undo',fn:()=>{ BA=old; baStore(); renderAll(); }}); return; }
   if(!chords.some(real)){ toast('Add the chords you want to move away from first'); return; }
-  const snap=JSON.parse(JSON.stringify(curSnap())); BA={S:snap.S,chords:sanitizeChords(snap.chords),melody:snap.melody||[],melAnd:snap.melAnd||[]}; baStore(); renderAll();
+  const snap=JSON.parse(JSON.stringify(curSnap())); const b=beatsFromTune(snap.tune); BA={S:snap.S,chords:sanitizeChords(snap.chords),melody:b.mel,melAnd:b.and}; baStore(); renderAll();
 }
 const baChord=(c,shift=0)=>mod(c.root+shift)+(Q[c.q].tri||c.q);
 /* one entry per bar: its chords, its notes and where they start */
@@ -5302,15 +5308,15 @@ function liveAdd(){ const L=MIDIIN.last; if(!L) return; const n=addChordHere(L.r
 /* share links: key, mode, meter, tempo and the chart text (sections and beat counts included) as base64url JSON after #s= */
 function b64url(str){ let s=''; new TextEncoder().encode(str).forEach(x=>s+=String.fromCharCode(x)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function unb64url(code){ const s=atob(code.replace(/-/g,'+').replace(/_/g,'/')); return new TextDecoder().decode(Uint8Array.from(s,ch=>ch.charCodeAt(0))); }
-const shareCode=()=>b64url(JSON.stringify({v:1,k:S.tonic,m:S.mode,t:S.meter,b:S.tempo,c:serialize(),...(melody.some(x=>x!=null)?{mel:melody}:{}),...(hasAnd()?{ma:melAnd}:{})}));
+const shareCode=()=>{ const t=tuneOfChart(); return b64url(JSON.stringify({v:2,k:S.tonic,m:S.mode,t:S.meter,b:S.tempo,c:serialize(),...(t.length?{tn:t.flatMap(n=>[n.t,n.d,n.m])}:{})})); };
 /* inside the claude.ai viewer the page runs in a frame, so the link is built on the viewer's address when the browser shares it */
 function shareBase(){ try{ if(window.top===window) return location.href.split('#')[0]; }catch(e){} const r=document.referrer||''; return /^https:\/\/claude\.ai\//.test(r)?r.split('#')[0]:location.href.split('#')[0]; }
 const shareLinkURL=()=>shareBase()+'#s='+shareCode();
 function readShare(text){ const m=String(text||'').trim().match(/(?:#s=|^)([A-Za-z0-9_-]{8,})$/); if(!m) return null;
-  try{ const d=JSON.parse(unb64url(m[1])); if(d&&d.v===1&&typeof d.c==='string') return d; }catch(e){} return null; }
+  try{ const d=JSON.parse(unb64url(m[1])); if(d&&(d.v===1||d.v===2)&&typeof d.c==='string') return d; }catch(e){} return null; }
 function applyShare(d){
   Object.assign(S,sanitizeS({tonic:d.k,mode:d.m,meter:d.t,tempo:d.b}));
-  const r=parseProg(d.c); if(!r.chords.length) return false; chords=r.chords; delete chords[0].kc; melody=sanitizeMelody(d.mel)||[]; melAnd=sanitizeMelAnd(d.ma)||[]; sel=chords[0].id; return true; }
+  const r=parseProg(d.c); if(!r.chords.length) return false; chords=r.chords; delete chords[0].kc; loadTune(d); sel=chords[0].id; return true; }
 
 /* clipboard, with an in-page copy box when the browser or frame blocks it */
 async function copyText(text,okMsg){ try{ await navigator.clipboard.writeText(text); toast(okMsg); return; }catch(e){} showCopyBox(text); }
@@ -5353,7 +5359,7 @@ const pickS=src=>Object.fromEntries(SNAPKEYS.filter(k=>src&&src[k]!=null).map(k=
 const pcOk=v=>v==null||(Number.isInteger(v)&&v>=0&&v<12);
 const validItem=x=>x&&typeof x.name==='string'&&x.name.length<=200&&x.snap&&Array.isArray(x.snap.chords)&&x.snap.chords.length<=1000&&x.snap.chords.every(c=>c&&Number.isInteger(c.beats)&&c.beats>0&&c.beats<=256&&Object.prototype.hasOwnProperty.call(Q,c.q)&&pcOk(c.root)&&pcOk(c.bass)&&(c.sec==null||typeof c.sec==='string'));
 function newItem(name,snap){ const now=Date.now(); return {id:'p'+now.toString(36)+Math.random().toString(36).slice(2,7),name,created:now,updated:now,snap:JSON.parse(JSON.stringify(snap))}; }
-const curSnap=()=>({S:pickS(S),chords:chords.map(({id,...c})=>c),...(melody.some(x=>x!=null)?{melody:melody.slice()}:{}),...(hasAnd()?{melAnd:melAnd.slice()}:{})});
+const curSnap=()=>({v:2,S:pickS(S),chords:chords.map(({id,...c})=>c),tune:tuneOfChart()});
 function libSave(){ try{ localStorage.setItem(LIBKEY,JSON.stringify(LIB)); return true; }catch(e){ toast('This browser would not store the library'); return false; } }
 function libLoad(){
   try{ const raw=localStorage.getItem(LIBKEY);
@@ -5363,7 +5369,7 @@ function libLoad(){
     libSave();
   }catch(e){}
 }
-function libOpen(it){ const list=sanitizeChords(it.snap.chords); if(!list){ toast('That saved progression is damaged and can’t be opened'); return; } pushHist(); Object.assign(S,sanitizeS(pickS(it.snap.S))); chords=list; melAnd=sanitizeMelAnd(it.snap.melAnd)||[]; melody=sanitizeMelody(it.snap.melody)||[]; sel=chords[0]?.id??null; libCurrent=it.id; commit(); $('#library').open=false; toast(`Opened “${it.name}”`); }
+function libOpen(it){ const list=sanitizeChords(it.snap.chords); if(!list){ toast('That saved progression is damaged and can’t be opened'); return; } pushHist(); Object.assign(S,sanitizeS(pickS(it.snap.S))); chords=list; loadTune(it.snap); sel=chords[0]?.id??null; libCurrent=it.id; commit(); $('#library').open=false; toast(`Opened “${it.name}”`); }
 function libSaveCurrent(){
   const typed=$('#libName').value.trim(), cur=LIB.items.find(i=>i.id===libCurrent);
   const name=typed||cur?.name||`Progression ${LIB.items.length+1}`;
@@ -5384,7 +5390,7 @@ async function libImportFile(file){
   try{ const d=JSON.parse(await file.text()); const items=(Array.isArray(d)?d:d&&d.items)||[]; let added=0;
     for(const x of items){ if(!validItem(x)) continue; let name=x.name; if(LIB.items.some(i=>i.name.toLowerCase()===name.toLowerCase())) name+=' (imported)';
       const list=sanitizeChords(x.snap.chords); if(!list) continue;
-      LIB.items.push(newItem(name,{S:sanitizeS(pickS(x.snap.S)),chords:list.map(({id,...c})=>c)})); added++; }
+      LIB.items.push(newItem(name,{v:2,S:sanitizeS(pickS(x.snap.S)),chords:list.map(({id,...c})=>c),tune:readTune(x.snap)})); added++; }
     if(added){ libSave(); renderLibrary(); } toast(added?`Imported ${added} progression${added>1?'s':''}`:'No progressions found in that file');
   }catch(e){ toast(`That file is not a ${APP_NAME} library`); }
 }
@@ -5511,7 +5517,7 @@ function boot(){
   let legacyMood=null;
   try{ const raw=localStorage.getItem('changes-v1'); if(raw){ const d=JSON.parse(raw), rs=d&&typeof d.S==='object'&&d.S?d.S:{}; legacyMood=rs.mood;
     Object.assign(S,sanitizeS(rs)); if(!Array.isArray(rs.vocab)) S.vocab=[...PRESETS[['Simple','Color','Jazz'][S.level??1]]];
-    const list=sanitizeChords(d.chords); if(list){ chords=list; sel=chords[0]?.id??null; loaded=chords.length>0; } melody=sanitizeMelody(d.melody)||[]; melAnd=sanitizeMelAnd(d.melAnd)||[]; } }catch(e){}
+    const list=sanitizeChords(d.chords); if(list){ chords=list; sel=chords[0]?.id??null; loaded=chords.length>0; } loadTune(d); } }catch(e){}
   /* older saves had Bluesy and Smooth jazz as moods; they are genres now */
   if(!Array.isArray(S.genres)) S.genres=[];
   setTuning(S.tuning);
@@ -6033,7 +6039,7 @@ function vocabName(){ const vk=[...S.vocab].sort().join(); const p=Object.keys(P
 function undo(){ const s=hist.pop(); if(!s) return; syncedTop=hist[hist.length-1]??null; restoreSnap(s); }
 /* which view you're in isn't an edit, so undo leaves it (and the chord families it set) as they are */
 const VIEW_KEYS=['centres','focus','hearIn','textSize','simple','simpleTheory','vocab','vocabFull','colorBy','colors','keyHome','keyColors'];
-function restoreSnap(s){ const d=JSON.parse(s), keep=Object.fromEntries(VIEW_KEYS.map(k=>[k,S[k]])); Object.assign(S,d.S,keep); setTuning(S.tuning); chords=d.chords; sel=d.sel; melody=d.melody||[]; melAnd=d.melAnd||[]; commit(); }
+function restoreSnap(s){ const d=JSON.parse(s), keep=Object.fromEntries(VIEW_KEYS.map(k=>[k,S[k]])); Object.assign(S,d.S,keep); setTuning(S.tuning); chords=d.chords; sel=d.sel; loadTune(d); commit(); }
 /* an Undo offered in a toast reverts that action, even if other edits happened since: it restores the snapshot taken just before it */
 function undoTo(snap){ return ()=>{ const i=hist.lastIndexOf(snap); if(i>=0) hist.length=i; syncedTop=hist[hist.length-1]??null; restoreSnap(snap); }; }
 if(typeof document!=='undefined'&&document.getElementById('rows')) boot();

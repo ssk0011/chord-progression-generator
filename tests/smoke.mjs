@@ -1881,6 +1881,30 @@ async function tuneSuite() {
   check('tune: holds, rests and split beats round-trip', same);
   check('tune: notes past the chart survive', (await rt([60, 62, 64, 65, 67], [])).mel.length === 5);
   check('tune: sanitize drops bad notes', await page.evaluate(() => JSON.stringify(sanitizeTune([{ t: 0, d: 12, m: 60 }, { t: -1, d: 12, m: 60 }, { t: 0, d: 0, m: 60 }, { t: 0, d: 12, m: 200 }, null]))) === '[{"t":0,"d":12,"m":60}]');
+  // every saved form opens the same
+  const M = [60, -1, 62, null, 64], A = [null, null, 63];
+  const want = await page.evaluate(([m, a]) => JSON.stringify(tuneFromBeats(m, a)), [M, A]);
+  const tuneNow = () => page.evaluate(() => JSON.stringify(tuneOfChart()));
+  const CH = [{ root: 0, q: '', beats: 4 }, { root: 7, q: '', beats: 4 }];
+  await page.evaluate(([c, m, a]) => localStorage.setItem('changes-v1', JSON.stringify({ S: { tonic: 0 }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
+  await page.reload();
+  check('tune: an old session loads unchanged', await tuneNow() === want);
+  await page.evaluate(() => save());
+  const sv = await page.evaluate(() => JSON.parse(localStorage.getItem('changes-v1')));
+  check('tune: new saves hold tune only', sv.v === 2 && Array.isArray(sv.tune) && !('melody' in sv) && !('melAnd' in sv));
+  await page.reload();
+  check('tune: a new save reloads unchanged', await tuneNow() === want);
+  await page.evaluate(([c, m, a]) => libOpen(newItem('old', { S: { tonic: 0 }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
+  check('tune: an old library item opens unchanged', await tuneNow() === want);
+  check('tune: library items save tune only', await page.evaluate(() => { const c = curSnap(); return c.v === 2 && Array.isArray(c.tune) && !('melody' in c); }));
+  check('tune: an old share link opens unchanged', await page.evaluate(([m, a]) => { const d = readShare(b64url(JSON.stringify({ v: 1, k: 0, m: 'ionian', t: '4/4', b: 90, c: 'C | G', mel: m, ma: a }))); applyShare(d); return JSON.stringify(tuneOfChart()); }, [M, A]) === want);
+  check('tune: a new share link round-trips', await page.evaluate(() => { const c = shareCode(), d = readShare(c); applyShare(d); return JSON.parse(unb64url(c)).v === 2 && JSON.stringify(tuneOfChart()); }) === want);
+  await page.evaluate(([c, m, a]) => localStorage.setItem(BA_KEY, JSON.stringify({ S: { tonic: 0, meter: '4/4' }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
+  await page.reload();
+  check('tune: a Break away original in the old form loads', await page.evaluate(() => !!BA && JSON.stringify(tuneOf(BA))) === want);
+  check('tune: an imported library file keeps its melody', await page.evaluate(async ([c, m, a]) => { await libImportFile(new File([JSON.stringify({ items: [{ name: 'Imported tune', snap: { S: { tonic: 0 }, chords: c, melody: m, melAnd: a } }] })], 'x.json')); return JSON.stringify(readTune(LIB.items.find(i => i.name === 'Imported tune').snap)); }, [CH, M, A]) === want);
+  check('tune: a damaged tune in a file keeps the good notes', await page.evaluate(() => readTune({ tune: [{ t: 0, d: 12, m: 60 }, 'x', { t: 12, d: 12, m: 999 }] }).length) === 1);
+  await page.evaluate(() => { localStorage.clear(); });
   check('tune: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
