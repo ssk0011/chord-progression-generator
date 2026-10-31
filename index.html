@@ -1574,7 +1574,7 @@ function sanitizeMelAnd(list){ if(!Array.isArray(list)||list.length>4096) return
 /* the tune is a list of timed notes {t,d,m}: start and length in ticks, and MIDI pitch. 12 ticks a counted beat fits 8ths, 16ths and triplets exactly */
 const TICKS=12;
 function sanitizeTune(list){ if(!Array.isArray(list)) return null;
-  return list.filter(n=>n&&Number.isInteger(n.t)&&n.t>=0&&Number.isInteger(n.d)&&n.d>=1&&Number.isInteger(n.m)&&n.m>=21&&n.m<=108).map(({t,d,m})=>({t,d,m})).sort((a,b)=>a.t-b.t).slice(0,4096); }
+  return list.filter(n=>n&&Number.isInteger(n.t)&&n.t>=0&&Number.isInteger(n.d)&&n.d>=1&&n.t+n.d<=4096*TICKS&&Number.isInteger(n.m)&&n.m>=21&&n.m<=108).map(({t,d,m})=>({t,d,m})).sort((a,b)=>a.t-b.t).slice(0,4096); }
 /* the older form: one entry a beat (a pitch, -1 to hold, or nothing), and a second list for notes on the "and" */
 function tuneFromBeats(mel,and){ const out=[]; let cur=null; const end=t=>{ if(cur){ cur.d=t-cur.t; cur=null; } }, start=(t,m)=>{ end(t); cur={t,d:0,m}; out.push(cur); }, len=Math.max(mel.length,and.length);
   for(let b=0;b<len;b++){ const x=mel[b]; if(x>0) start(b*TICKS,x); else if(x!==-1) end(b*TICKS); if(and[b]>0) start(b*TICKS+TICKS/2,and[b]); }
@@ -2111,7 +2111,7 @@ function suggestions(idx){
   if(wrap) afterIdeas();
 
   // 1 diatonic
-  const g1=mk('dia',hasC?'Same job, different chord':'Chords from the key that fit here',hasC?'Diatonic chords that share notes with it, so the melBeats().mel usually still works.':'Ranked by how smoothly they connect the chords on either side.');
+  const g1=mk('dia',hasC?'Same job, different chord':'Chords from the key that fit here',hasC?'Diatonic chords that share notes with it, so the melody usually still works.':'Ranked by how smoothly they connect the chords on either side.');
   const sc1=dias.map(c=>{
     let s=0, mp={s:0,t:''}; if(hasC){ if(c.root===C.root) return null; s=shared(c,C).length*2; } else if(p){ s+=shared(c,p).length*.6; mp=motion(p,c); s+=mp.s*1.2; }
     const mo=motion(c,nx); s+=mo.s*nw; if(nx) s+=shared(c,nx).length*.4*nw; return {c,s,mo,mp};
@@ -2215,7 +2215,7 @@ function suggestions(idx){
       add(g6,[withQ(C,'m11')],'Quartal minor 11: stacked 4ths, McCoy Tyner sound.',{tag:'jazz'});
     } else if(q.tri==='maj'){
       add(g6,[{root:mod(C.root+4),q:'m7',bass:null}],'iii-for-I: shares three notes, lands softer.',{tag:'jazz'});
-      add(g6,[{root:mod(C.root+9),q:'m9',bass:null}],'Relative minor 9: moodier, same melBeats().mel notes.',{tag:'jazz'});
+      add(g6,[{root:mod(C.root+9),q:'m9',bass:null}],'Relative minor 9: moodier, same melody notes.',{tag:'jazz'});
       add(g6,[withQ(C,'maj7#11')],'Lydian major 7. Glassy and modern.',{tag:'jazz'});
       add(g6,[withQ(C,'6/9'),{root:mod(C.root+3),q:'dim7',bass:null}],'Tonic then ♭III°7 passing chord (Ellington turn).',{tag:'jazz'});
     } else if(q.tri==='dim'){
@@ -3893,7 +3893,7 @@ function renderArrBar(){
     <button type="button" class="cp-x" data-aact="close" aria-label="Close arranging">${IC.x}</button></div>
     ${groups}
     <p class="hint ab-blurb">${esc(st.blurb)}${seed?` <span class="ab-ver">Version ${seed+1}.</span>`:''}</p>
-    ${hasTune?range:range+'<p class="hint ab-empty">No tune yet, so the top part sings a line of chord tones, shown in grey in the melBeats().mel lane. Write your own tune there (tap a box under the chords, then a note) and the parts fill in around it.</p>'}
+    ${hasTune?range:range+'<p class="hint ab-empty">No tune yet, so the top part sings a line of chord tones, shown in grey in the melody lane. Write your own tune there (tap a box under the chords, then a note) and the parts fill in around it.</p>'}
     <div class="ab-voices" role="group" aria-label="Parts to hear">${ar.voices.map((v,k)=>chip(k,v.name,v.range)).join('')}${chip(N,S.instrument==='guitar'?'Guitar chords':'Piano chords')}<span class="hint ab-tip">Tap a part to mute it, S to hear it alone. Tap a note in the lanes to see why it’s there.</span></div>`;
 }
 /* ---- why this voicing: the card for a tapped beat ---- */
@@ -4230,7 +4230,7 @@ function renderSubs0(){
   { const own=real(c)?[...new Set(allPcs(c))]:[], extra=keepNotes.filter(pc=>!own.includes(pc));
     h+=`<div class="keep" role="group" aria-label="Notes to keep"><span class="label">Keep note</span>${[...own,...extra].map(pc=>`<button type="button" class="chip" data-keep="${pc}" aria-pressed="${keepNotes.includes(pc)}">${esc(prettyNote(spell(pc)))}${real(c)&&own.includes(pc)?` <small>${esc(roleOf(c,pc))}</small>`:''}</button>`).join('')}
       <select id="keepOther" aria-label="Keep another note"><option value="">+ other note</option>${Array.from({length:12},(_,i)=>mod(S.tonic+i)).filter(pc=>!own.includes(pc)&&!keepNotes.includes(pc)).map(pc=>`<option value="${pc}">${esc(prettyNote(spell(pc)))}</option>`).join('')}</select>
-      <span class="hint">${keepNotes.length?`Only ideas containing ${keepNotes.map(pc=>esc(prettyNote(spell(pc)))).join(' and ')}. ${IC.play} plays it as the top note.`:'Pick a note (e.g. your melBeats().mel note) that every idea must contain.'}</span></div>`; }
+      <span class="hint">${keepNotes.length?`Only ideas containing ${keepNotes.map(pc=>esc(prettyNote(spell(pc)))).join(' and ')}. ${IC.play} plays it as the top note.`:'Pick a note (e.g. your melody note) that every idea must contain.'}</span></div>`; }
   groups.forEach((g,gi)=>{
     h+=`<div class="group" data-gi="${gi}"><div class="group-h"><h3>${esc(g.title)}</h3><p>${esc(g.blurb)}</p></div>`;
     const lim=g.id==='keep'?keepShown:4, shownItems=openGroups.has(g.id)&&g.id!=='keep'?g.items:g.items.slice(0,lim);
@@ -4744,7 +4744,7 @@ function explainIdea(C,it,P,N){
   }
   if(!real(C)){ const sp=P?shared(X,P):[]; return `${nX} fills the gap${P?`, ${sp.length?`sharing ${pcNames(sp)} with ${chordName(P)}`:`moving away from ${chordName(P)} with no shared notes`}`:''}${dest}.`; }
   const nC=chordName(C), cp=[...new Set(allPcs(C))], xp=[...new Set(allPcs(X))], sh=cp.filter(pc=>xp.includes(pc)), added=xp.filter(pc=>!cp.includes(pc));
-  const keep=sh.length>=2?`keeps ${pcNamesIn(C,sh)} from ${nC}, so a melBeats().mel on those notes still fits`:sh.length===1?`keeps only ${pcNamesIn(C,sh)} from ${nC}, so check your melBeats().mel against it`:`shares no notes with ${nC}, so it lands as a deliberate jolt`;
+  const keep=sh.length>=2?`keeps ${pcNamesIn(C,sh)} from ${nC}, so a melody on those notes still fits`:sh.length===1?`keeps only ${pcNamesIn(C,sh)} from ${nC}, so check your melody against it`:`shares no notes with ${nC}, so it lands as a deliberate jolt`;
   const bd=brightness(X)-brightness(C), td=(Q[X.q].dom?1:0)-(Q[C.q].dom?1:0), susX=Q[X.q].tri==='sus'&&Q[C.q].tri!=='sus';
   let color='';
   if(susX){ const third=Q[C.q].iv.find(i=>i===3||i===4), sus=Q[X.q].iv.find(i=>i===2||i===5);
@@ -5025,17 +5025,17 @@ function playMelody(beats,list,ands=[]){
 function renderMelody(){
   const el=$('#melOut');
   if(!MEL.results.length){ el.innerHTML=''; return; }
-  const tg=MEL.target, places=tg?{bars:`Over ${tg.first===tg.last?'bar '+tg.first:'bars '+tg.first+'–'+tg.last} (the melBeats().mel you selected)`,...MEL_PLACES}:MEL_PLACES;
+  const tg=MEL.target, places=tg?{bars:`Over ${tg.first===tg.last?'bar '+tg.first:'bars '+tg.first+'–'+tg.last} (the melody you selected)`,...MEL_PLACES}:MEL_PLACES;
   el.innerHTML=`<div class="mel-place"><label class="label" for="melPlace">Put the chords</label><select id="melPlace">${Object.entries(places).map(([k,l])=>`<option value="${k}" ${tg?(k==='bars'?'selected':''):(k===S.melPlace?'selected':'')}>${l}</option>`).join('')}</select></div>`+MEL.results.map((r,i)=>{ const L=barLen(); let pos=0; const bars=[];
     r.list.forEach(c=>{ const b=Math.floor(pos/L); (bars[b]=bars[b]||[]).push(chordName(c)); pos+=c.beats; });
-    return `<div class="mel-row"><span class="mc">${esc(bars.map(b=>b.join(' ')).join(' | '))}</span><span class="ms">${r.hits} of ${r.strong} strong-beat melBeats().mel notes are chord tones</span>
-      <span class="mb"><button type="button" class="btn small" data-mplay="${i}">${IC.play}With melBeats().mel</button><button type="button" class="btn small primary" data-muse="${i}">Add to chart</button></span></div>`; }).join('');
+    return `<div class="mel-row"><span class="mc">${esc(bars.map(b=>b.join(' ')).join(' | '))}</span><span class="ms">${r.hits} of ${r.strong} strong-beat melody notes are chord tones</span>
+      <span class="mb"><button type="button" class="btn small" data-mplay="${i}">${IC.play}With melody</button><button type="button" class="btn small primary" data-muse="${i}">Add to chart</button></span></div>`; }).join('');
 }
 function melodySuggest(){
   const r=parseMelody($('#melIn').value); S.melText=$('#melIn').value; S.melRate=+$('#melRate').value; save();
   if(r.tooMany){ MEL={beats:[],results:[]}; const t=r.tooMany[0]; $('#melOut').innerHTML=`<p class="err">Bar ${t.bar} has ${t.n} ${t.beats?'beats':'notes'}; ${t.beats?`a bar of ${esc(S.meter)} has ${t.max}`:`at most ${t.max} fit in a bar of ${esc(S.meter)}, two to a beat`}. Spread them over two bars with a |.</p>`; return; }
   if(r.bad){ MEL={beats:[],results:[]}; $('#melOut').innerHTML=`<p class="err">Couldn’t read ${r.bad.slice(0,4).map(b=>`“${esc(b)}”`).join(', ')}. Use note names like E, F♯ or Bb, with - to hold and . for a rest.</p>`; return; }
-  if(!r.beats.some(Boolean)){ MEL={beats:[],results:[]}; $('#melOut').innerHTML='<p class="hint">Type a melBeats().mel above, one note per beat, then press Suggest chords.</p>'; return; }
+  if(!r.beats.some(Boolean)){ MEL={beats:[],results:[]}; $('#melOut').innerHTML='<p class="hint">Type a melody above, one note per beat, then press Suggest chords.</p>'; return; }
   MEL={beats:r.beats,ands:r.ands,results:harmonize(r.beats,S.melRate)}; renderMelody();
 }
 
@@ -5601,9 +5601,9 @@ function boot(){
   $('#melody').addEventListener('click',e=>{ if(e.target.closest('[data-goto]')) selectTab('left','setkey'); });
   $('#melToLane').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ melodySuggest(); return; }
     pushHist(); const ms=melodyMidis(r.beats,r.ands); melPut(ms.map((n,i)=>n?(n.onset?n.m:-1):null),ms.ands.slice());
-    S.showMel=true; melSel={a:0,b:0}; commit(); toast('The melBeats().mel is in the lane under the chart, from bar 1',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
+    S.showMel=true; melSel={a:0,b:0}; commit(); toast('The melody is in the lane under the chart, from bar 1',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
   $('#melIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); melodySuggest(); } };
-  $('#melPlay').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ toast(r.tooMany?`Bar ${r.tooMany[0].bar} has too many notes to fit`:'Type a melBeats().mel first: note names, - to hold, . to rest'); return; } playMelody(r.beats,null,r.ands); };
+  $('#melPlay').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ toast(r.tooMany?`Bar ${r.tooMany[0].bar} has too many notes to fit`:'Type a melody first: note names, - to hold, . to rest'); return; } playMelody(r.beats,null,r.ands); };
   $('#melOut').addEventListener('click',e=>{ const p=e.target.closest('[data-mplay]'), u=e.target.closest('[data-muse]');
     if(p){ const r=MEL.results[+p.dataset.mplay]; playMelody(MEL.beats,r.list.map(c=>({...c})),MEL.ands||[]); }
     if(u) placeHarmony(MEL.results[+u.dataset.muse].list); });

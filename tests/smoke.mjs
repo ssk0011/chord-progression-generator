@@ -1907,6 +1907,12 @@ async function tuneSuite() {
   check('tune: a Break away original in the old form loads', await page.evaluate(() => !!BA && JSON.stringify(BA.tune)) === want);
   check('tune: an imported library file keeps its melody', await page.evaluate(async ([c, m, a]) => { await libImportFile(new File([JSON.stringify({ items: [{ name: 'Imported tune', snap: { S: { tonic: 0 }, chords: c, melody: m, melAnd: a } }] })], 'x.json')); return JSON.stringify(readTune(LIB.items.find(i => i.name === 'Imported tune').snap)); }, [CH, M, A]) === want);
   check('tune: a damaged tune in a file keeps the good notes', await page.evaluate(() => readTune({ tune: [{ t: 0, d: 12, m: 60 }, 'x', { t: 12, d: 12, m: 999 }] }).length) === 1);
+  // review fixes
+  check('tune: no code name shows up in the app’s wording', !/(?:[A-Za-z]+ |>|`|')melBeats\(\)\.(?:mel|and)(?: [a-z]+ |['’]s |,| lane)/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').replace(/\b(?:return|const|of|in|let) melBeats/g, '')));
+  check('tune: harmonize text says melody', await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = true; chords = parseProg('C | G').chords; melPut([60, 62, 64, 65, 67, 65, 62, 59], []); sel = chords[0].id; melSel = { a: 0, b: 4 }; commit(); melHarmonize(); return !document.body.innerHTML.includes('melBeats'); }));
+  check('tune: a note past the size limit is dropped', await page.evaluate(() => readTune({ tn: [6000000000, 12, 60, 0, 1000000000, 60, 0, 12, 60] }).length) === 1);
+  check('tune: a huge link leaves the app working', await page.evaluate(() => { const d = readShare(b64url(JSON.stringify({ v: 2, k: 0, m: 'ionian', t: '4/4', b: 90, c: 'C | G', tn: [6000000000, 12, 60] }))); applyShare(d); commit(); return melNotes().length; }) === 0);
+  check('tune: a rest clears the note and its holds', await page.evaluate(() => { S.showMel = true; chords = parseProg('C | G').chords; melPut([60, -1, -1, -1], []); melSel = { a: 0, b: 0, h: 0 }; commit(); melSet(0, null, false, 0); return tune.length; }) === 0);
   await page.evaluate(() => { localStorage.clear(); });
   // the storage change must not alter anything shown, played or exported
   { const gold = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'golden-tune.json'), 'utf8')), { record } = await import('./capture-golden.mjs');
