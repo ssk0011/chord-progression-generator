@@ -1591,7 +1591,20 @@ function loadTune(d){ tune=readTune(d); }
 let beatView=null, beatViewOf=null;
 function melBeats(){ if(beatViewOf!==tune){ beatView=beatsFromTune(tune); beatViewOf=tune; } return beatView; }
 function melPut(mel,and){ tune=tuneFromBeats(mel,and); }
-function melEdit(fn){ const b=melBeats(), mel=b.mel.slice(), and=b.and.slice(); fn(mel,and); melPut(mel,and); }
+/* editing through beats would flatten notes finer than a half beat, so then only the beats that changed are rewritten */
+const tuneFine=()=>tune.some((n,i)=>{ const e=n.t+n.d; return n.t%(TICKS/2)||e%(TICKS/2)||(e%TICKS&&tune[i+1]?.t!==e); });
+function melEdit(fn){ const b=melBeats(), mel=b.mel.slice(), and=b.and.slice(); fn(mel,and); if(!tuneFine()){ melPut(mel,and); return; }
+  const fresh=tuneFromBeats(mel,and), len=Math.max(mel.length,and.length,b.mel.length,b.and.length); let carry=false;
+  for(let i=0;i<len;i++){ const ch=(mel[i]??null)!==(b.mel[i]??null)||(and[i]??null)!==(b.and[i]??null)||(carry&&mel[i]===-1); carry=ch; if(!ch) continue;
+    const t0=i*TICKS; tuneClear(t0,t0+TICKS); tuneAdd(t0,sliceNotes(fresh,t0,t0+TICKS)); } }
+/* timed edits: a span's notes relative to its start, clearing it, cutting it out, opening a gap, and putting notes in */
+function sliceNotes(list,t0,t1){ return list.filter(n=>n.t<t1&&n.t+n.d>t0).map(n=>{ const s=Math.max(n.t,t0), e=Math.min(n.t+n.d,t1); return {t:s-t0,d:e-s,m:n.m}; }); }
+const tuneSlice=(t0,t1)=>sliceNotes(tune,t0,t1);
+function tuneMoved(t0,t1,at){ const out=[]; tune.forEach(n=>{ const e=n.t+n.d; if(n.t<t0) out.push({...n,d:Math.min(e,t0)-n.t}); if(e>t1){ const s=Math.max(n.t,t1); out.push({t:s+at-t1,d:e-s,m:n.m}); } }); return out.sort((a,b)=>a.t-b.t); }
+function tuneClear(t0,t1){ tune=tuneMoved(t0,t1,t1); }
+function tuneCut(t0,t1){ const part=tuneSlice(t0,t1); tune=tuneMoved(t0,t1,t0); return part; }
+function tuneOpen(at,len){ tune=tuneMoved(at,at,at+len); }
+function tuneAdd(at,notes){ tune=[...tune,...notes.map(n=>({...n,t:n.t+at}))].sort((a,b)=>a.t-b.t); }
 const hasAnd=()=>melBeats().and.some(x=>x>0);
 let _id=1; const uid=()=>'c'+(_id++);
 
@@ -3148,11 +3161,11 @@ function sectionsOf(list=chords){
   out.forEach(s=>{ s.base=baseName(s.name); s.sig=secSig(list,s.i0,s.i1); s.id=list[s.i0]?.id; s.bars=Math.ceil((s.b1-s.b0)/L); });
   return out;
 }
-const melSlice=(b0,b1)=>JSON.stringify(Array.from({length:b1-b0},(_,i)=>[melBeats().mel[b0+i]??null,melBeats().and[b0+i]??null]));
+const melSlice=(b0,b1)=>JSON.stringify(tuneSlice(b0*TICKS,b1*TICKS));
 let unfolded=new Set(); /* first-chord ids of repeats the user opened */
 /* each section with what it repeats: of = the index of the earlier section it matches */
 function formInfo(){
-  const secs=sectionsOf(), tuneOn=S.showMel&&melBeats().mel.some(x=>x!=null);
+  const secs=sectionsOf(), tuneOn=S.showMel&&tune.length>0;
   secs.forEach((s,k)=>{ s.of=null; if(!s.name) return;
     for(let j=0;j<k;j++){ const t=secs[j]; if(t.base===s.base&&t.sig===s.sig&&(!tuneOn||melSlice(t.b0,t.b1)===melSlice(s.b0,s.b1))){ s.of=t.of??j; break; } }
     /* a repeat opens while the melody cursor or an explanation is inside it */
@@ -3168,11 +3181,11 @@ function syncRepeats(){
   let prev; try{ prev=JSON.parse(top).chords; }catch(e){ return; } if(!Array.isArray(prev)) return;
   const ps=sectionsOf(prev), ns=sectionsOf(chords); if(ps.length!==ns.length||ps.some((s,k)=>s.base!==ns[k].base)) return;
   const groups={}; ps.forEach((s,k)=>{ if(!s.name) return; (groups[s.base+'\u0000'+s.sig]=groups[s.base+'\u0000'+s.sig]||[]).push(k); });
-  const tune=melBeats().mel.some(x=>x!=null)||hasAnd(); let done=null;
+  const hasTune=tune.length>0; let done=null;
   for(const ks of Object.values(groups)){ if(ks.length<2) continue;
     const changed=ks.filter(k=>ns[k].sig!==ps[k].sig); if(changed.length!==1) continue;
     const src=ns[changed[0]], lenSame=src.b1-src.b0===ps[changed[0]].b1-ps[changed[0]].b0;
-    if(tune&&!lenSame){ toast(`Only this ${src.name} changed: its length changed, and the tune under the others would move`); continue; }
+    if(hasTune&&!lenSame){ toast(`Only this ${src.name} changed: its length changed, and the tune under the others would move`); continue; }
     /* copy the edited section over its copies, from the last back so earlier positions stay put */
     const fresh=chords.slice(src.i0,src.i1);
     ks.filter(k=>k!==changed[0]).sort((a,b)=>b-a).forEach(k=>{ const t=sectionsOf(chords)[k], head=chords[t.i0];
@@ -3187,10 +3200,10 @@ function syncRepeats(){
 function repeatSection(k,where){
   const secs=sectionsOf(), s=secs[k]; if(!s) return; pushHist();
   const copy=chords.slice(s.i0,s.i1).map((c,i)=>{ const n={...c,id:uid()}; delete n.lock; delete n.kc; if(i===0){ n.sec=s.name||'Section'; n.br=true; } else { delete n.sec; delete n.br; } return n; });
-  const tune=Array.from({length:s.b1-s.b0},(_,i)=>melBeats().mel[s.b0+i]??null), ands=Array.from({length:s.b1-s.b0},(_,i)=>melBeats().and[s.b0+i]??null), total=chords.reduce((a,c)=>a+c.beats,0);
+  const part=tuneSlice(s.b0*TICKS,s.b1*TICKS), len=(s.b1-s.b0)*TICKS, total=chords.reduce((a,c)=>a+c.beats,0);
   const at=where==='end'?total:s.b1;
   if(where==='end') chords.push(...copy); else chords.splice(s.i1,0,...copy);
-  melEdit((mel,and)=>{ while(mel.length<at) mel.push(null); while(and.length<at) and.push(null); mel.splice(at,0,...tune); and.splice(at,0,...ands); });
+  tuneOpen(at*TICKS,len); tuneAdd(at*TICKS,part);
   if(!s.name) chords[s.i0].sec='Section';
   syncedTop=hist[hist.length-1]; sel=copy[0].id; commit(); toast(`Repeated ${s.name||'the section'} ${where==='end'?'at the end':'after itself'}`);
 }
@@ -3199,13 +3212,12 @@ function moveSection(k,t,after,copy){
   const secs=sectionsOf(), s=secs[k], d=secs[t]; if(!s||!d) return false;
   let at=after?d.i1:d.i0, beat=after?d.b1:d.b0; if(!copy&&at>=s.i0&&at<=s.i1) return false;
   pushHist(); const total=chords.reduce((a,c)=>a+c.beats,0), len=s.b1-s.b0, name=s.name||'Section';
-  const v=melBeats(), mel=v.mel.slice(), and=v.and.slice(); while(mel.length<total) mel.push(null); while(and.length<total) and.push(null);
-  let piece=chords.slice(s.i0,s.i1), part=mel.slice(s.b0,s.b1), ands=and.slice(s.b0,s.b1);
+  let piece=chords.slice(s.i0,s.i1), part=tuneSlice(s.b0*TICKS,s.b1*TICKS);
   if(copy) piece=piece.map(c=>{ const n={...c,id:uid()}; delete n.lock; return n; });
-  else { chords.splice(s.i0,s.i1-s.i0); mel.splice(s.b0,len); and.splice(s.b0,len); if(at>s.i0){ at-=piece.length; beat-=len; } }
+  else { chords.splice(s.i0,s.i1-s.i0); tuneCut(s.b0*TICKS,s.b1*TICKS); if(at>s.i0){ at-=piece.length; beat-=len; } }
   const head=piece[0]={...piece[0],sec:name}; if(at>0) head.br=true; else delete head.br;
   /* the section now first in the chart, if it moved, no longer needs its line break */
-  chords.splice(at,0,...piece); mel.splice(beat,0,...part); and.splice(beat,0,...ands); melPut(mel,and);
+  chords.splice(at,0,...piece); tuneOpen(beat*TICKS,len*TICKS); tuneAdd(beat*TICKS,part);
   /* an unnamed opening section pushed down needs a name, or it would join the section now in front of it */
   const nx=chords[at+piece.length]; if(nx&&!nx.sec&&at===0){ nx.sec='Section'; nx.br=true; }
   if(chords[0]) delete chords[0].br;
@@ -3428,7 +3440,7 @@ function melNudgeAt(p,n){
   pushHist(); melEdit((mel,and)=>{ if(q.h) and[q.b]=y; else mel[q.b]=y; }); commit(); renderMelPad(); focusMelCell(); playMelNote(y,q.b); }
 const melNudge=(b,n,h=0)=>melNudgeAt({b,h},n);
 /* the tune as notes {b,n,m}, b and n in beats (a note on the "and" starts half a beat in); a note runs on through holds */
-const melNotes=()=>notesOf(melBeats().mel,melBeats().and,chords.reduce((a,c)=>a+c.beats,0));
+const melNotes=()=>{ const end=chords.reduce((a,c)=>a+c.beats,0)*TICKS; return sliceNotes(tune,0,end).map(n=>({b:n.t/TICKS,m:n.m,n:n.d/TICKS})); };
 /* the melody over one pass of the chart, a little louder than the chords */
 function playMelLine(t0,unit,out){ melNotes().forEach(n=>tone(n.m,t0+n.b*unit,n.n*unit*.94,.2,out)); }
 function melClearRange(){ if(!melSel) return; const lo=Math.min(melSel.a,melSel.b), hi=Math.max(melSel.a,melSel.b); pushHist(); melEdit((mel,and)=>{ for(let i=lo;i<=hi;i++){ if(i<mel.length) mel[i]=null; and[i]=null; } }); melSel={a:lo,b:lo,h:0}; commit(); renderMelPad(); focusMelCell(); }
@@ -4345,7 +4357,7 @@ function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); render
 /* ============ front door ============ */
 /* a fresh visit opens on an example with some colour in it, and the Create panel opens on "I have chords" */
 const EXAMPLE='G | B7 | Em | Cm';
-const isExample=()=>S.tonic===7&&S.mode==='ionian'&&!melBeats().mel.some(x=>x!=null)&&chords.map(c=>chordName(c,true)+':'+c.beats+(c.sec||c.kc?'*':'')).join(' ')==='G:4 B7:4 Em:4 Cm:4';
+const isExample=()=>S.tonic===7&&S.mode==='ionian'&&!tune.length&&chords.map(c=>chordName(c,true)+':'+c.beats+(c.sec||c.kc?'*':'')).join(' ')==='G:4 B7:4 Em:4 Cm:4';
 /* the most likely key for chords typed by name: in-key chords count most, then secondary dominants, then borrowed ones, and a
    tonic chord at either end tips it */
 function guessKey(list){
@@ -5565,7 +5577,7 @@ function boot(){
   $('#recipe').onclick=e=>{ const b=e.target.closest('[data-addfams]'); if(!b) return; S.vocab=[...new Set([...S.vocab,...b.dataset.addfams.split(',')])]; commit(); toast(`Vocabulary updated: ${vocabName()}`); };
   $('#gen').onclick=()=>{ generate(); stopAll(); playChart(); };
   $('#regen').onclick=regenUnlocked;
-  $('#clearChart').onclick=()=>{ if(!chords.length&&!melBeats().mel.some(x=>x!=null)&&!hasAnd()) return; stopAll(); pushHist(); chords=[]; tune=[]; melSel=null; sel=null; commit(); renderMelPad(); toast('Cleared: a fresh start',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
+  $('#clearChart').onclick=()=>{ if(!chords.length&&!tune.length) return; stopAll(); pushHist(); chords=[]; tune=[]; melSel=null; sel=null; commit(); renderMelPad(); toast('Cleared: a fresh start',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
   let firstVisit=!loaded; try{ if(localStorage.getItem(TAB_KEY)) firstVisit=false; }catch(e){}
   initLayout(); fitScreen();
   /* a first visit on a wide screen opens Create beside the example, on I have chords */

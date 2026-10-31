@@ -1923,6 +1923,29 @@ async function tuneSuite() {
   check('tune: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
+async function gridSuite() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(URL_);
+  const start = (txt = 'C | G', list = [{ t: 0, d: 3, m: 60 }, { t: 3, d: 3, m: 62 }, { t: 12, d: 12, m: 64 }]) => page.evaluate(([x, l]) => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = true; S.melGrid = 'beat'; S.zoomBars = 0; S.linkForm = false; S.foldForm = false; chords = parseProg(x).chords; tune = l; sel = chords[0].id; melSel = null; commit(); }, [txt, list]);
+  const has = (t, d, m) => page.evaluate(([t, d, m]) => tune.some(n => n.t === t && n.d === d && n.m === m), [t, d, m]);
+  await start(); await page.evaluate(() => melSet(1, 67, false, 0));
+  check('grid: pad edits leave finer notes alone', await has(0, 3, 60) && await has(3, 3, 62));
+  await start(); await page.evaluate(() => { melSel = { a: 2, b: 2, h: 0 }; melClearRange(); });
+  check('grid: clearing a beat leaves other beats alone', await has(0, 3, 60) && await has(3, 3, 62) && await has(12, 12, 64));
+  await start();
+  check('grid: playback keeps 16ths', await page.evaluate(() => { const n = melNotes(); return n[0].b === 0 && n[0].n === .25 && n[1].b === .25 && n[1].n === .25; }));
+  await start('[Verse]\nC\n[Chorus]\nG', [{ t: 0, d: 4, m: 60 }, { t: 4, d: 4, m: 62 }, { t: 8, d: 4, m: 64 }]);
+  await page.evaluate(() => repeatSection(0, 'after'));
+  check('grid: repeating a section keeps triplets', await has(52, 4, 62) && await has(4, 4, 62));
+  await page.evaluate(() => undo());
+  await start('[Verse]\nC\n[Chorus]\nG', [{ t: 3, d: 3, m: 60 }, { t: 51, d: 3, m: 62 }]);
+  await page.evaluate(() => moveSection(1, 0, false, false));
+  check('grid: moving a section keeps 16ths', await has(3, 3, 62) && await has(51, 3, 60), await page.evaluate(() => JSON.stringify(tune)));
+  await start('[A]\nC\n[A 2]\nC', [{ t: 3, d: 3, m: 60 }, { t: 48 + 6, d: 3, m: 60 }]);
+  check('grid: sections with different 16ths don’t count as repeats', await page.evaluate(() => formInfo()[1].of === null));
+  check('grid: no console errors', !page.errors.length, page.errors.join(' | '));
+  await ctx.close();
+}
 async function searchSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(URL_);
@@ -2245,6 +2268,7 @@ try {
   await launchSuite();
   await breakAway();
   await tuneSuite();
+  await gridSuite();
   await menus();
   await layout();
   await hardening();
