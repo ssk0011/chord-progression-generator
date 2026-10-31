@@ -59,6 +59,9 @@ async function openPage(opts = {}) {
   const ctx = await browser.newContext({ acceptDownloads: true, serviceWorkers: 'block', ...o });
   /* most checks start from the screens a returning visitor sees; firstVisit opts into a brand-new visitor's first screen */
   if (!opts.firstVisit) await ctx.addInitScript(() => { try { if (!localStorage.getItem('changes-tabs-v1')) localStorage.setItem('changes-tabs-v1', '{}'); } catch (e) {} });
+  /* tests read and set the tune as the older beat lists, through the same converters the app loads old saves with */
+  await ctx.addInitScript(() => { const lane = k => ({ configurable: true, get() { const v = melBeats(); return new Proxy(v[k].slice(), { set(o, i, x) { o[i] = x; if (i !== 'length') { const b = melBeats(); melPut(k === 'mel' ? o : b.mel, k === 'and' ? o : b.and); } return true; } }); }, set(x) { const b = melBeats(); melPut(k === 'mel' ? x : b.mel, k === 'and' ? x : b.and); } });
+    Object.defineProperty(window, 'melody', lane('mel')); Object.defineProperty(window, 'melAnd', lane('and')); });
   const page = await ctx.newPage(); page.errors = []; page.setDefaultTimeout(5000);
   // controls now live in tabs, the Create drawer and popovers: reveal one the way a person would before using it
   if (!noReveal) for (const m of ['click', 'fill', 'selectOption', 'check', 'uncheck', 'dblclick', 'setInputFiles', 'press']) {
@@ -1857,7 +1860,7 @@ async function breakAway() {
   await page.click('#breakaway [data-ba=hear]');
   check('break away: the button stops the original', !(await page.evaluate(() => playing)));
   await page.reload();
-  check('break away: the original survives a reload', (await page.locator('#breakaway').isVisible()) && (await page.evaluate(() => BA.chords.length === 4 && BA.melody.length === 16)));
+  check('break away: the original survives a reload', (await page.locator('#breakaway').isVisible()) && (await page.evaluate(() => BA.chords.length === 4 && BA.tune.length === 16)));
   await page.click('#breakaway [data-ba=stop]');
   check('break away: stopping removes it and offers Undo', await page.evaluate(() => BA === null && !localStorage.getItem(BA_KEY)) && await page.locator('#toast button').isVisible());
   await page.click('#toast button');
@@ -1884,7 +1887,7 @@ async function tuneSuite() {
   // every saved form opens the same
   const M = [60, -1, 62, null, 64], A = [null, null, 63];
   const want = await page.evaluate(([m, a]) => JSON.stringify(tuneFromBeats(m, a)), [M, A]);
-  const tuneNow = () => page.evaluate(() => JSON.stringify(tuneOfChart()));
+  const tuneNow = () => page.evaluate(() => JSON.stringify(tune));
   const CH = [{ root: 0, q: '', beats: 4 }, { root: 7, q: '', beats: 4 }];
   await page.evaluate(([c, m, a]) => localStorage.setItem('changes-v1', JSON.stringify({ S: { tonic: 0 }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
   await page.reload();
@@ -1897,14 +1900,20 @@ async function tuneSuite() {
   await page.evaluate(([c, m, a]) => libOpen(newItem('old', { S: { tonic: 0 }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
   check('tune: an old library item opens unchanged', await tuneNow() === want);
   check('tune: library items save tune only', await page.evaluate(() => { const c = curSnap(); return c.v === 2 && Array.isArray(c.tune) && !('melody' in c); }));
-  check('tune: an old share link opens unchanged', await page.evaluate(([m, a]) => { const d = readShare(b64url(JSON.stringify({ v: 1, k: 0, m: 'ionian', t: '4/4', b: 90, c: 'C | G', mel: m, ma: a }))); applyShare(d); return JSON.stringify(tuneOfChart()); }, [M, A]) === want);
-  check('tune: a new share link round-trips', await page.evaluate(() => { const c = shareCode(), d = readShare(c); applyShare(d); return JSON.parse(unb64url(c)).v === 2 && JSON.stringify(tuneOfChart()); }) === want);
+  check('tune: an old share link opens unchanged', await page.evaluate(([m, a]) => { const d = readShare(b64url(JSON.stringify({ v: 1, k: 0, m: 'ionian', t: '4/4', b: 90, c: 'C | G', mel: m, ma: a }))); applyShare(d); return JSON.stringify(tune); }, [M, A]) === want);
+  check('tune: a new share link round-trips', await page.evaluate(() => { const c = shareCode(), d = readShare(c); applyShare(d); return JSON.parse(unb64url(c)).v === 2 && JSON.stringify(tune); }) === want);
   await page.evaluate(([c, m, a]) => localStorage.setItem(BA_KEY, JSON.stringify({ S: { tonic: 0, meter: '4/4' }, chords: c, melody: m, melAnd: a })), [CH, M, A]);
   await page.reload();
-  check('tune: a Break away original in the old form loads', await page.evaluate(() => !!BA && JSON.stringify(tuneOf(BA))) === want);
+  check('tune: a Break away original in the old form loads', await page.evaluate(() => !!BA && JSON.stringify(BA.tune)) === want);
   check('tune: an imported library file keeps its melody', await page.evaluate(async ([c, m, a]) => { await libImportFile(new File([JSON.stringify({ items: [{ name: 'Imported tune', snap: { S: { tonic: 0 }, chords: c, melody: m, melAnd: a } }] })], 'x.json')); return JSON.stringify(readTune(LIB.items.find(i => i.name === 'Imported tune').snap)); }, [CH, M, A]) === want);
   check('tune: a damaged tune in a file keeps the good notes', await page.evaluate(() => readTune({ tune: [{ t: 0, d: 12, m: 60 }, 'x', { t: 12, d: 12, m: 999 }] }).length) === 1);
   await page.evaluate(() => { localStorage.clear(); });
+  // the storage change must not alter anything shown, played or exported
+  { const gold = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'golden-tune.json'), 'utf8')), { record } = await import('./capture-golden.mjs');
+    const { ctx: c3, page: p3 } = await openPage({ viewport: { width: 1280, height: 900 } }); await p3.goto(URL_);
+    const now = await record(p3);
+    for (const k of Object.keys(gold)) for (const f of Object.keys(gold[k])) check(`tune: golden ${k} ${f} is unchanged`, JSON.stringify(now[k][f]) === JSON.stringify(gold[k][f]));
+    await c3.close(); }
   check('tune: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }

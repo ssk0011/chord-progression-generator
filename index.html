@@ -1567,7 +1567,7 @@ let chords=[], sel=null, hist=[];
    before it, null is a rest. It is independent of the chords, so moving a chord changes the harmony under the tune.
    melAnd holds the note on the "and" of a beat (the second half of a beat split in two), or null: a split beat is two
    eighth notes in 4/4. Everything that works by beat (colours, harmonizing, arranging) reads the note on the beat. */
-let melody=[], melAnd=[];
+let tune=[];
 function sanitizeMelody(list){ if(!Array.isArray(list)||list.length>4096) return null;
   return list.map((x,i)=>Number.isInteger(x)&&x>=21&&x<=108?x:x===-1&&i>0?-1:null); }
 function sanitizeMelAnd(list){ if(!Array.isArray(list)||list.length>4096) return null; return list.map(x=>Number.isInteger(x)&&x>=21&&x<=108?x:null); }
@@ -1586,9 +1586,13 @@ function beatsFromTune(tune){ const mel=[], and=[];
 function readTune(d){ if(!d) return []; if(Array.isArray(d.tune)) return sanitizeTune(d.tune)||[];
   if(Array.isArray(d.tn)){ const out=[]; for(let i=0;i+2<d.tn.length&&i<12288;i+=3) out.push({t:d.tn[i],d:d.tn[i+1],m:d.tn[i+2]}); return sanitizeTune(out)||[]; }
   return tuneFromBeats(sanitizeMelody(d.melody||d.mel)||[],sanitizeMelAnd(d.melAnd||d.ma)||[]); }
-const tuneOf=x=>tuneFromBeats(x.melody,x.melAnd), tuneOfChart=()=>tuneFromBeats(melody,melAnd);
-function loadTune(d){ const b=beatsFromTune(readTune(d)); melody=b.mel; melAnd=b.and; }
-const hasAnd=()=>melAnd.some(x=>x>0);
+function loadTune(d){ tune=readTune(d); }
+/* code that thinks in beats reads this view of the tune, and changes it through a copy */
+let beatView=null, beatViewOf=null;
+function melBeats(){ if(beatViewOf!==tune){ beatView=beatsFromTune(tune); beatViewOf=tune; } return beatView; }
+function melPut(mel,and){ tune=tuneFromBeats(mel,and); }
+function melEdit(fn){ const b=melBeats(), mel=b.mel.slice(), and=b.and.slice(); fn(mel,and); melPut(mel,and); }
+const hasAnd=()=>melBeats().and.some(x=>x>0);
 let _id=1; const uid=()=>'c'+(_id++);
 
 const mod=n=>((n%12)+12)%12;
@@ -2107,7 +2111,7 @@ function suggestions(idx){
   if(wrap) afterIdeas();
 
   // 1 diatonic
-  const g1=mk('dia',hasC?'Same job, different chord':'Chords from the key that fit here',hasC?'Diatonic chords that share notes with it, so the melody usually still works.':'Ranked by how smoothly they connect the chords on either side.');
+  const g1=mk('dia',hasC?'Same job, different chord':'Chords from the key that fit here',hasC?'Diatonic chords that share notes with it, so the melBeats().mel usually still works.':'Ranked by how smoothly they connect the chords on either side.');
   const sc1=dias.map(c=>{
     let s=0, mp={s:0,t:''}; if(hasC){ if(c.root===C.root) return null; s=shared(c,C).length*2; } else if(p){ s+=shared(c,p).length*.6; mp=motion(p,c); s+=mp.s*1.2; }
     const mo=motion(c,nx); s+=mo.s*nw; if(nx) s+=shared(c,nx).length*.4*nw; return {c,s,mo,mp};
@@ -2211,7 +2215,7 @@ function suggestions(idx){
       add(g6,[withQ(C,'m11')],'Quartal minor 11: stacked 4ths, McCoy Tyner sound.',{tag:'jazz'});
     } else if(q.tri==='maj'){
       add(g6,[{root:mod(C.root+4),q:'m7',bass:null}],'iii-for-I: shares three notes, lands softer.',{tag:'jazz'});
-      add(g6,[{root:mod(C.root+9),q:'m9',bass:null}],'Relative minor 9: moodier, same melody notes.',{tag:'jazz'});
+      add(g6,[{root:mod(C.root+9),q:'m9',bass:null}],'Relative minor 9: moodier, same melBeats().mel notes.',{tag:'jazz'});
       add(g6,[withQ(C,'maj7#11')],'Lydian major 7. Glassy and modern.',{tag:'jazz'});
       add(g6,[withQ(C,'6/9'),{root:mod(C.root+3),q:'dim7',bass:null}],'Tonic then ♭III°7 passing chord (Ellington turn).',{tag:'jazz'});
     } else if(q.tri==='dim'){
@@ -2503,7 +2507,7 @@ const LOOP_AHEAD=.5;
 /* the passes queued so far (the one playing and the one queued after it), for finding where playback is when the chart changes */
 let PASSES=[];
 /* everything that changes what a pass sounds like; the chart is rescheduled when it differs from the pass's */
-const playSig=()=>JSON.stringify([serialize(),chords.map(c=>[c.id,c.gpin,c.ppin]),melody,melAnd,S.tempo,S.meter,S.instrument,S.pstyle,S.gstyle,S.voicing,S.tuning,S.capo,S.arr,S.arrGroup,S.arrShow,S.arrSeed,S.arrMute,S.showMel,S.melPlay,S.melText,S.drone,S.tonic,S.mode]);
+const playSig=()=>JSON.stringify([serialize(),chords.map(c=>[c.id,c.gpin,c.ppin]),melBeats().mel,melBeats().and,S.tempo,S.meter,S.instrument,S.pstyle,S.gstyle,S.voicing,S.tuning,S.capo,S.arr,S.arrGroup,S.arrShow,S.arrSeed,S.arrMute,S.showMel,S.melPlay,S.melText,S.drone,S.tonic,S.mode]);
 /* one pass through the chart from audio time t. With `from` (a beat), it starts partway through: notes before that beat are
    left out and the chord sounding there is struck afresh, so an edit made while playing is heard straight away. */
 function playPass(t,out,from=0){
@@ -2641,7 +2645,7 @@ function stackNear(pcs,lo,hi,prev,target,fixed=false){
 const lowIn=(pc,lo,hi)=>{ for(let m=lo;m<=hi;m++) if(mod(m)===mod(pc)) return m; return lo; };
 const nm7=(root,q)=>chordName({root:mod(root),q,bass:null});
 function pianoPart(){
-  const style=S.pstyle, jazz=style==='evans', key=JSON.stringify([style,S.tonic,S.mode,S.meter,chords.map(c=>[c.root,c.q,c.bass,c.beats,c.kc]),melody,melAnd]);
+  const style=S.pstyle, jazz=style==='evans', key=JSON.stringify([style,S.tonic,S.mode,S.meter,chords.map(c=>[c.root,c.q,c.bass,c.beats,c.kc]),melBeats().mel,melBeats().and]);
   if(partCache&&partCache.key===key) return partCache.val;
   const L=barLen(), acc=new Set(ACCENTS[S.meter]||[0]), st=chordStarts(), total=chords.reduce((a,c)=>a+c.beats,0), ev=[], dev={L:[],R:[]};
   const sw=jazz?.17:.08, swing=x=>Math.abs(x-Math.floor(x)-.5)<1e-6?x+sw:x;
@@ -2714,7 +2718,7 @@ function pianoPart(){
   });
   /* ---- right hand: out of the singer's way; it answers in the gaps ---- */
   const gaps=[];
-  if(hasTune){ onsets.forEach((b,k)=>{ const nx=onsets[k+1]??total, s=b+1; if(nx-s>=2) gaps.push({s,e:nx,tune:melOnsetPitch(b),held:melody[s]===-1}); }); }
+  if(hasTune){ onsets.forEach((b,k)=>{ const nx=onsets[k+1]??total, s=b+1; if(nx-s>=2) gaps.push({s,e:nx,tune:melOnsetPitch(b),held:melBeats().mel[s]===-1}); }); }
   else { for(let bar=1;bar*L<=total;bar+=2){ const e=bar*L+L; if(e<=total) gaps.push({s:e-2,e,tune:null,phrase:true}); } }
   const lastStart=realIdx.length?st[realIdx[realIdx.length-1]]:total;
   /* Broadway: the tune's highest long note gets a tremolo under it */
@@ -2769,7 +2773,7 @@ function partWhy(d){
     switch(d.kind){
       case 'stride': return {title:`Stride left hand · ${d.chord}`,p:[`The left hand plays the bass and the chord on its own: ${joinList([...new Set(d.bass.map(midiName))])} low on the strong beats${new Set(d.bass.map(mod)).size>1?' (root, then fifth)':''}, and ${nn(d.notes)} in the middle of the keyboard on the beats between. It is the “oom-pah” under Broadway, ragtime and old-school piano, and it leaves the right hand free.`,
         d.added===9?`${d.chord} is written as a plain triad, so it gets an added 6th (${noteNm(d.croot+9)}): the warm, show-tune sound.`:'',
-        melody.some(x=>x>0)||hasAnd()?'While the singer sings, the right hand stays out of their way; it plays in the gaps.':''].filter(Boolean)};
+        melBeats().mel.some(x=>x>0)||hasAnd()?'While the singer sings, the right hand stays out of their way; it plays in the gaps.':''].filter(Boolean)};
       case 'pass': return {title:`Passing chord · ${d.label}`,p:[`On the last beat of ${d.chord} comes ${d.label} (${inKey({t:d.spellAt,m:'ionian'},()=>nn(d.notes.slice(1)))}). ${d.next}’s root is a whole step above ${d.chord}’s, so the bass climbs by half steps, ${inKey({t:d.spellAt,m:'ionian'},()=>arrow([d.from,d.notes[0],d.to]))}, and each note of the diminished chord leans a half step into a note of ${d.next}.`]};
       case 'walk': return {title:`Walk-up into ${d.next}`,p:[`Rather than jumping to ${d.next}, the bass walks up one step a beat: ${arrow([...d.notes,d.to])}. The change arrives, rather than just happening.`]};
       case 'approach': return {title:`Approach chord · ${d.label}`,p:[`On the last beat of ${d.chord} comes ${d.label} (${nn(d.notes.slice(1))}), the dominant 7th of ${d.next}. It tugs the ear toward ${d.next} a beat early: a preview of where the music is going.`]};
@@ -2857,7 +2861,7 @@ function rerenderDetailKeepScroll(){ const sc=$('#detail .shapes')?.scrollLeft||
 
 /* ============ state & rendering ============ */
 const $=s=>document.querySelector(s);
-function snapshot(){ return JSON.stringify({v:2,S,chords,sel,tune:tuneOfChart()}); }
+function snapshot(){ return JSON.stringify({v:2,S,chords,sel,tune}); }
 function pushHist(){ hist.push(snapshot()); if(hist.length>60) hist.shift(); }
 function save(){ try{ localStorage.setItem('changes-v1',snapshot()); }catch(e){} }
 function commit(){ syncRepeats(); renderAll(); save(); }
@@ -3144,11 +3148,11 @@ function sectionsOf(list=chords){
   out.forEach(s=>{ s.base=baseName(s.name); s.sig=secSig(list,s.i0,s.i1); s.id=list[s.i0]?.id; s.bars=Math.ceil((s.b1-s.b0)/L); });
   return out;
 }
-const melSlice=(b0,b1)=>JSON.stringify(Array.from({length:b1-b0},(_,i)=>[melody[b0+i]??null,melAnd[b0+i]??null]));
+const melSlice=(b0,b1)=>JSON.stringify(Array.from({length:b1-b0},(_,i)=>[melBeats().mel[b0+i]??null,melBeats().and[b0+i]??null]));
 let unfolded=new Set(); /* first-chord ids of repeats the user opened */
 /* each section with what it repeats: of = the index of the earlier section it matches */
 function formInfo(){
-  const secs=sectionsOf(), tuneOn=S.showMel&&melody.some(x=>x!=null);
+  const secs=sectionsOf(), tuneOn=S.showMel&&melBeats().mel.some(x=>x!=null);
   secs.forEach((s,k)=>{ s.of=null; if(!s.name) return;
     for(let j=0;j<k;j++){ const t=secs[j]; if(t.base===s.base&&t.sig===s.sig&&(!tuneOn||melSlice(t.b0,t.b1)===melSlice(s.b0,s.b1))){ s.of=t.of??j; break; } }
     /* a repeat opens while the melody cursor or an explanation is inside it */
@@ -3164,7 +3168,7 @@ function syncRepeats(){
   let prev; try{ prev=JSON.parse(top).chords; }catch(e){ return; } if(!Array.isArray(prev)) return;
   const ps=sectionsOf(prev), ns=sectionsOf(chords); if(ps.length!==ns.length||ps.some((s,k)=>s.base!==ns[k].base)) return;
   const groups={}; ps.forEach((s,k)=>{ if(!s.name) return; (groups[s.base+'\u0000'+s.sig]=groups[s.base+'\u0000'+s.sig]||[]).push(k); });
-  const tune=melody.some(x=>x!=null)||hasAnd(); let done=null;
+  const tune=melBeats().mel.some(x=>x!=null)||hasAnd(); let done=null;
   for(const ks of Object.values(groups)){ if(ks.length<2) continue;
     const changed=ks.filter(k=>ns[k].sig!==ps[k].sig); if(changed.length!==1) continue;
     const src=ns[changed[0]], lenSame=src.b1-src.b0===ps[changed[0]].b1-ps[changed[0]].b0;
@@ -3183,10 +3187,10 @@ function syncRepeats(){
 function repeatSection(k,where){
   const secs=sectionsOf(), s=secs[k]; if(!s) return; pushHist();
   const copy=chords.slice(s.i0,s.i1).map((c,i)=>{ const n={...c,id:uid()}; delete n.lock; delete n.kc; if(i===0){ n.sec=s.name||'Section'; n.br=true; } else { delete n.sec; delete n.br; } return n; });
-  const tune=Array.from({length:s.b1-s.b0},(_,i)=>melody[s.b0+i]??null), ands=Array.from({length:s.b1-s.b0},(_,i)=>melAnd[s.b0+i]??null), total=chords.reduce((a,c)=>a+c.beats,0);
-  const at=where==='end'?total:s.b1; while(melody.length<at) melody.push(null); while(melAnd.length<at) melAnd.push(null);
+  const tune=Array.from({length:s.b1-s.b0},(_,i)=>melBeats().mel[s.b0+i]??null), ands=Array.from({length:s.b1-s.b0},(_,i)=>melBeats().and[s.b0+i]??null), total=chords.reduce((a,c)=>a+c.beats,0);
+  const at=where==='end'?total:s.b1;
   if(where==='end') chords.push(...copy); else chords.splice(s.i1,0,...copy);
-  melody.splice(at,0,...tune); melAnd.splice(at,0,...ands);
+  melEdit((mel,and)=>{ while(mel.length<at) mel.push(null); while(and.length<at) and.push(null); mel.splice(at,0,...tune); and.splice(at,0,...ands); });
   if(!s.name) chords[s.i0].sec='Section';
   syncedTop=hist[hist.length-1]; sel=copy[0].id; commit(); toast(`Repeated ${s.name||'the section'} ${where==='end'?'at the end':'after itself'}`);
 }
@@ -3195,13 +3199,13 @@ function moveSection(k,t,after,copy){
   const secs=sectionsOf(), s=secs[k], d=secs[t]; if(!s||!d) return false;
   let at=after?d.i1:d.i0, beat=after?d.b1:d.b0; if(!copy&&at>=s.i0&&at<=s.i1) return false;
   pushHist(); const total=chords.reduce((a,c)=>a+c.beats,0), len=s.b1-s.b0, name=s.name||'Section';
-  while(melody.length<total) melody.push(null); while(melAnd.length<total) melAnd.push(null);
-  let piece=chords.slice(s.i0,s.i1), tune=melody.slice(s.b0,s.b1), ands=melAnd.slice(s.b0,s.b1);
+  const v=melBeats(), mel=v.mel.slice(), and=v.and.slice(); while(mel.length<total) mel.push(null); while(and.length<total) and.push(null);
+  let piece=chords.slice(s.i0,s.i1), part=mel.slice(s.b0,s.b1), ands=and.slice(s.b0,s.b1);
   if(copy) piece=piece.map(c=>{ const n={...c,id:uid()}; delete n.lock; return n; });
-  else { chords.splice(s.i0,s.i1-s.i0); melody.splice(s.b0,len); melAnd.splice(s.b0,len); if(at>s.i0){ at-=piece.length; beat-=len; } }
+  else { chords.splice(s.i0,s.i1-s.i0); mel.splice(s.b0,len); and.splice(s.b0,len); if(at>s.i0){ at-=piece.length; beat-=len; } }
   const head=piece[0]={...piece[0],sec:name}; if(at>0) head.br=true; else delete head.br;
   /* the section now first in the chart, if it moved, no longer needs its line break */
-  chords.splice(at,0,...piece); melody.splice(beat,0,...tune); melAnd.splice(beat,0,...ands);
+  chords.splice(at,0,...piece); mel.splice(beat,0,...part); and.splice(beat,0,...ands); melPut(mel,and);
   /* an unnamed opening section pushed down needs a name, or it would join the section now in front of it */
   const nx=chords[at+piece.length]; if(nx&&!nx.sec&&at===0){ nx.sec='Section'; nx.br=true; }
   if(chords[0]) delete chords[0].br;
@@ -3246,12 +3250,12 @@ function renderFormBar(){
 const BA_KEY='changes-breakaway-v1';
 let BA=null, baNow=null, baHearing=false;
 function baLoad(){ try{ const d=JSON.parse(localStorage.getItem(BA_KEY)||'null'); if(!d) return; const list=sanitizeChords(d.chords); if(!list||!list.length) return;
-  const b=beatsFromTune(readTune(d)); BA={S:sanitizeS(pickS(d.S)),chords:list,melody:b.mel,melAnd:b.and}; }catch(e){} }
-function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({v:2,S:BA.S,chords:BA.chords.map(({id,...c})=>c),tune:tuneOf(BA)})); else localStorage.removeItem(BA_KEY); }catch(e){} }
+  BA={S:sanitizeS(pickS(d.S)),chords:list,tune:readTune(d)}; }catch(e){} }
+function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({v:2,S:BA.S,chords:BA.chords.map(({id,...c})=>c),tune:BA.tune})); else localStorage.removeItem(BA_KEY); }catch(e){} }
 function baToggle(){
   if(BA){ const old=BA; if(baHearing) stopAll(); BA=null; baStore(); renderAll(); toast('Stopped comparing. The original is gone from here.',{label:'Undo',fn:()=>{ BA=old; baStore(); renderAll(); }}); return; }
   if(!chords.some(real)){ toast('Add the chords you want to move away from first'); return; }
-  const snap=JSON.parse(JSON.stringify(curSnap())); const b=beatsFromTune(snap.tune); BA={S:snap.S,chords:sanitizeChords(snap.chords),melody:b.mel,melAnd:b.and}; baStore(); renderAll();
+  const snap=JSON.parse(JSON.stringify(curSnap())); BA={S:snap.S,chords:sanitizeChords(snap.chords),tune:snap.tune}; baStore(); renderAll();
 }
 const baChord=(c,shift=0)=>mod(c.root+shift)+(Q[c.q].tri||c.q);
 /* one entry per bar: its chords, its notes and where they start */
@@ -3271,8 +3275,8 @@ function baMatch(A,B,i,eq){ if(eq(A[i],B[i])) return i;
   for(const o of [0,-1]){ const x=A[i+o], y=A[i+o+1]; if(!x||!y) continue; for(let j=0;j<B.length-1;j++) if(eq(x,B[j])&&eq(y,B[j+1])) return j-o; }
   return -1; }
 function baReport(){
-  if(!BA) return null; const L=barLen(), rL=parseInt((BA.S.meter||'4/4').split('/')[0],10), A=baBars(chords,melody,melAnd,L);
-  const d=mod(S.tonic-(BA.S.tonic??S.tonic)), Bs=[baBars(BA.chords,BA.melody,BA.melAnd,rL)]; if(d) Bs.push(baBars(BA.chords,BA.melody,BA.melAnd,rL,d));
+  if(!BA) return null; const L=barLen(), rL=parseInt((BA.S.meter||'4/4').split('/')[0],10), A=baBars(chords,melBeats().mel,melBeats().and,L);
+  const d=mod(S.tonic-(BA.S.tonic??S.tonic)), rb=beatsFromTune(BA.tune), Bs=[baBars(BA.chords,rb.mel,rb.and,rL)]; if(d) Bs.push(baBars(BA.chords,rb.mel,rb.and,rL,d));
   const bars=A.map((a,i)=>{ let c=false, n=false, r=false;
     for(const B of Bs){ if(baMatch(A,B,i,baSameCh)>=0) c=true; const j=baMatch(A,B,i,baSameNotes); if(j>=0){ n=true; if(B[j]&&B[j].rhy===a.rhy) r=true; } }
     return {c,n,r,tune:a.notes.length>0,empty:!a.ch.length&&!a.notes.length}; });
@@ -3289,12 +3293,12 @@ function baChordIdea(i){
 }
 /* the bar's tune turned upside down around its first note, kept in the key */
 function baFlipped(i){
-  const L=barLen(), b0=i*L, idx=chordIdxAt(b0), sc=inKey(keyAt(Math.max(idx,0)),()=>scaleSet()), first=[...Array(L).keys()].map(k=>melody[b0+k]>0?melody[b0+k]:melAnd[b0+k]>0?melAnd[b0+k]:0).find(Boolean); if(!first) return null;
+  const L=barLen(), b0=i*L, idx=chordIdxAt(b0), sc=inKey(keyAt(Math.max(idx,0)),()=>scaleSet()), first=[...Array(L).keys()].map(k=>melBeats().mel[b0+k]>0?melBeats().mel[b0+k]:melBeats().and[b0+k]>0?melBeats().and[b0+k]:0).find(Boolean); if(!first) return null;
   const fix=m=>{ let x=first-(m-first); for(let k=0;k<6;k++){ if(sc.has(mod(x-k))){ x-=k; break; } if(sc.has(mod(x+k))){ x+=k; break; } } return Math.min(84,Math.max(55,x)); };
-  const mel=[], and=[]; let moved=false; for(let k=0;k<L;k++){ const x=melody[b0+k], y=melAnd[b0+k]; mel.push(x>0?fix(x):x??null); and.push(y>0?fix(y):y??null); if((x>0&&mel[k]!==x)||(y>0&&and[k]!==y)) moved=true; }
+  const mel=[], and=[]; let moved=false; for(let k=0;k<L;k++){ const x=melBeats().mel[b0+k], y=melBeats().and[b0+k]; mel.push(x>0?fix(x):x??null); and.push(y>0?fix(y):y??null); if((x>0&&mel[k]!==x)||(y>0&&and[k]!==y)) moved=true; }
   return moved?{mel,and}:null;
 }
-function baPutBar(i,mel,and){ const L=barLen(), b0=i*L, total=chords.reduce((a,c)=>a+c.beats,0); pushHist(); S.showMel=true; while(melody.length<total) melody.push(null); while(melAnd.length<total) melAnd.push(null); mel.forEach((x,k)=>{ if(b0+k<total){ melody[b0+k]=x; melAnd[b0+k]=and[k]; } }); commit(); }
+function baPutBar(i,mel,and){ const L=barLen(), b0=i*L, total=chords.reduce((a,c)=>a+c.beats,0); pushHist(); S.showMel=true; melEdit((m,a)=>{ while(m.length<total) m.push(null); while(a.length<total) a.push(null); mel.forEach((x,k)=>{ if(b0+k<total){ m[b0+k]=x; a[b0+k]=and[k]; } }); }); commit(); }
 function baIdeas(){
   if(!baNow) return []; const out=[], order=baNow.bars.map((b,i)=>({...b,i})).filter(b=>!b.empty&&(b.c||b.n)).sort((a,b)=>(b.c&&b.n)-(a.c&&a.n)||a.i-b.i);
   for(const b of order){ if(out.length>=3) break; const chord=b.c?baChordIdea(b.i):null, flip=b.n?baFlipped(b.i):null, late=b.n&&b.r&&barLen()>1; if(!chord&&!flip&&!late) continue; out.push({...b,chord,flip:!!flip,late}); }
@@ -3312,10 +3316,10 @@ function renderBreak(){
 }
 function baHear(){
   if(baHearing){ stopAll(); renderBreak(); return; }
-  const keep={chords,melody,melAnd,S:Object.fromEntries(['tonic','mode','meter','tempo','showMel','melPlay','arrShow'].map(k=>[k,S[k]]))}; stopAll(); const a=ac(); clearTimers(); const out=newSession();
-  try{ chords=BA.chords; melody=BA.melody; melAnd=BA.melAnd; Object.assign(S,BA.S,{showMel:true,melPlay:true,arrShow:false}); PLAN=null; guitarPlan.cache=null;
+  const keep={chords,tune,S:Object.fromEntries(['tonic','mode','meter','tempo','showMel','melPlay','arrShow'].map(k=>[k,S[k]]))}; stopAll(); const a=ac(); clearTimers(); const out=newSession();
+  try{ chords=BA.chords; tune=BA.tune; Object.assign(S,BA.S,{showMel:true,melPlay:true,arrShow:false}); PLAN=null; guitarPlan.cache=null;
     baHearing=true; playing=true; $('#play').innerHTML=IC.stop+'Stop'; arrPlayBtn(); playPass(a.currentTime+.08,out); }
-  finally{ chords=keep.chords; melody=keep.melody; melAnd=keep.melAnd; Object.assign(S,keep.S); PLAN=null; guitarPlan.cache=null; }
+  finally{ chords=keep.chords; tune=keep.tune; Object.assign(S,keep.S); PLAN=null; guitarPlan.cache=null; }
   renderBreak();
 }
 function baClick(e){
@@ -3328,7 +3332,7 @@ function baClick(e){
   if(w==='hearc'){ audition(contextSeq(x.chord.idx,[x.chord.c])); return; }
   if(w==='chord'){ replaceAt(x.chord.idx,[x.chord.c]); return; }
   if(w==='flip'){ const f=baFlipped(x.i); if(f) baPutBar(x.i,f.mel,f.and); return; }
-  if(w==='late'){ const turn=a=>{ const s=Array.from({length:L},(_,k)=>a[b0+k]??null); return [null,...s.slice(0,L-1)]; }; baPutBar(x.i,turn(melody),turn(melAnd)); }
+  if(w==='late'){ const turn=a=>{ const s=Array.from({length:L},(_,k)=>a[b0+k]??null); return [null,...s.slice(0,L-1)]; }; baPutBar(x.i,turn(melBeats().mel),turn(melBeats().and)); }
 }
 /* ============ melody lane ============ */
 /* One cell per beat under the chords. A note is coloured by what it is against the chord above it: a chord tone (solid),
@@ -3339,10 +3343,10 @@ const chordStarts=()=>{ const st=[]; let p=0; chords.forEach(c=>{ st.push(p); p+
 function chordIdxAt(b,st=chordStarts()){ for(let i=chords.length-1;i>=0;i--) if(st[i]<=b) return b<st[i]+chords[i].beats?i:-1; return -1; }
 /* the pitch sounding at the start of a beat: the note started there, or the one being held (which may be the note on the
    "and" of an earlier beat) */
-function melPitch(b){ for(let i=b;i>=0;i--){ if(i<b&&melAnd[i]>0) return melAnd[i]; const x=melody[i]; if(x>0) return x; if(x!==-1) return null; } return null; }
+function melPitch(b){ for(let i=b;i>=0;i--){ if(i<b&&melBeats().and[i]>0) return melBeats().and[i]; const x=melBeats().mel[i]; if(x>0) return x; if(x!==-1) return null; } return null; }
 /* the note that starts on a beat, either half */
-const melOnsetPitch=b=>melAnd[b]>0?melAnd[b]:melody[b]>0?melody[b]:null;
-const melOnset=b=>melody[b]>0||melAnd[b]>0;
+const melOnsetPitch=b=>melBeats().and[b]>0?melBeats().and[b]:melBeats().mel[b]>0?melBeats().mel[b]:null;
+const melOnset=b=>melBeats().mel[b]>0||melBeats().and[b]>0;
 function melRel(pc,ci,b){
   const c=chords[ci]; if(!real(c)) return inKey(keyAt(Math.max(ci,0)),()=>scaleSet().has(pc))?'color':'pass';
   return inKey(keyAt(ci),()=>{ if(corePcs(c).includes(pc)||(c.bass!=null&&c.bass===pc)) return 'tone'; if(pcsOf(c).includes(pc)||scaleSet().has(pc)) return 'color'; return strongBeat(b)?'clash':'pass'; });
@@ -3352,7 +3356,7 @@ const MEL_REL={tone:'chord tone',color:'colour note',pass:'passing note',clash:'
    never a strong beat, so a note outside the chord there is a passing note) */
 function melLaneHTML(r0,r1,starts,mrow=2,tag='',oor=null){
   let h=''; const L=barLen(), lo=melSel?Math.min(melSel.a,melSel.b):-1, hi=melSel?Math.max(melSel.a,melSel.b):-1, ghost=arrOn()&&arrAutoTune()?autoTop():null;
-  for(let b=r0;b<r1;b++){ const x=melody[b]??null, m=x===-1?melPitch(b):x, ci=chordIdxAt(b,starts), y=melAnd[b]??null;
+  for(let b=r0;b<r1;b++){ const x=melBeats().mel[b]??null, m=x===-1?melPitch(b):x, ci=chordIdxAt(b,starts), y=melBeats().and[b]??null;
     const nm=p=>inKey(keyAt(Math.max(ci,0)),()=>prettyNote(spell(mod(p))));
     const rel=m>0&&ci>=0?melRel(mod(m),ci,b):'', name=m>0?nm(m):'';
     const g=ghost&&x==null?ghost[b]:null, gm=g===-1?null:g;
@@ -3366,15 +3370,15 @@ function melLaneHTML(r0,r1,starts,mrow=2,tag='',oor=null){
   return h;
 }
 /* positions in the tune: {b, h}, h=1 for the "and" of the beat */
-const melAt=p=>p.h?melAnd[p.b]??null:melody[p.b]??null;
-const melSplit=b=>melAnd[b]>0;
+const melAt=p=>p.h?melBeats().and[p.b]??null:melBeats().mel[p.b]??null;
+const melSplit=b=>melBeats().and[b]>0;
 /* a new note goes in the octave nearest the one before it, kept in a comfortable singing range */
-function melOctave(pc,b,h=0){ let prev=h&&melody[b]>0?melody[b]:null;
-  for(let i=b-1;prev==null&&i>=0;i--){ if(melAnd[i]>0){ prev=melAnd[i]; break; } const x=melody[i]; if(x>0){ prev=x; break; } }
+function melOctave(pc,b,h=0){ let prev=h&&melBeats().mel[b]>0?melBeats().mel[b]:null;
+  for(let i=b-1;prev==null&&i>=0;i--){ if(melBeats().and[i]>0){ prev=melBeats().and[i]; break; } const x=melBeats().mel[i]; if(x>0){ prev=x; break; } }
   prev=prev??67; let m=prev-6; while(mod(m)!==pc) m++; return Math.min(84,Math.max(55,m)); }
 function melSet(b,val,advance=true,h=melSel?.h||0){
   const total=chords.reduce((a,c)=>a+c.beats,0); if(b<0||b>=total) return; pushHist();
-  if(h){ melAnd[b]=val>0?val:null; } else { while(melody.length<=b) melody.push(null); melody[b]=val; }
+  melEdit((mel,and)=>{ if(h){ and[b]=val>0?val:null; } else { while(mel.length<=b) mel.push(null); mel[b]=val; } });
   melLast=val>0?{b,h}:null;
   /* the cursor moves to the "and" of a split beat, then to the next beat */
   if(advance&&!h&&melSplit(b)) melSel={a:b,b,h:1}; else if(advance&&b+1<total) melSel={a:b+1,b:b+1,h:0}; else melSel={a:b,b,h:melSplit(b)?h:0};
@@ -3383,9 +3387,9 @@ function melSet(b,val,advance=true,h=melSel?.h||0){
 }
 /* splits a beat in two (its "and" starts as the same note, ready to be changed), or joins it back into one */
 function melToggleSplit(b){
-  if(melSplit(b)){ pushHist(); melAnd[b]=null; melSel={a:b,b,h:0}; commit(); renderMelPad(); focusMelCell(); return; }
+  if(melSplit(b)){ pushHist(); melEdit((mel,and)=>{ and[b]=null; }); melSel={a:b,b,h:0}; commit(); renderMelPad(); focusMelCell(); return; }
   const p=melPitch(b); if(!(p>0)){ toast('Put a note on the beat first, then split it'); return; }
-  pushHist(); melAnd[b]=p; melSel={a:b,b,h:1}; commit(); renderMelPad(); focusMelCell();
+  pushHist(); melEdit((mel,and)=>{ and[b]=p; }); melSel={a:b,b,h:1}; commit(); renderMelPad(); focusMelCell();
 }
 function playMelNote(m,b){ const a=ac(), out=previewOut(), ci=chordIdxAt(b);
   if(ci>=0&&real(chords[ci])) strum(chords[ci],a.currentTime+.02,.9,out,playedVoicing(chords[ci]));
@@ -3399,7 +3403,7 @@ function renderMelPad0(){
   if(melSel&&arrAt!=null){ arrAt=null; renderArrWhy(); }
   if(melSel&&partAt!=null){ partAt=null; renderPartWhy(); }
   const el=$('#melPad'); if(!S.showMel||!melSel){ el.hidden=true; el.innerHTML=''; return; }
-  const b=melSel.b, h=melSplit(b)?melSel.h||0:0, L=barLen(), ci=chordIdxAt(b), c=ci>=0?chords[ci]:null, k=keyAt(Math.max(ci,0)), cur=h?melAnd[b]:melody[b]??null, m=cur===-1?melPitch(b):cur;
+  const b=melSel.b, h=melSplit(b)?melSel.h||0:0, L=barLen(), ci=chordIdxAt(b), c=ci>=0?chords[ci]:null, k=keyAt(Math.max(ci,0)), cur=h?melBeats().and[b]:melBeats().mel[b]??null, m=cur===-1?melPitch(b):cur;
   const notes=Array.from({length:12},(_,i)=>mod(k.t+i)), sc=inKey(k,()=>scaleSet());
   const rg=melRangeBars(), multi=melSel.a!==melSel.b, split=melSplit(b);
   el.hidden=false;
@@ -3419,15 +3423,15 @@ function renderMelPad0(){
 }
 /* moves a note (the one at a position, or the one it holds) by n half steps */
 function melNudgeAt(p,n){
-  let q={...p}; if(!q.h&&melody[q.b]===-1){ let i=q.b-1; while(i>0&&melody[i]===-1&&!(melAnd[i]>0)) i--; q=melAnd[i]>0?{b:i,h:1}:{b:i,h:0}; }
+  let q={...p}; if(!q.h&&melBeats().mel[q.b]===-1){ let i=q.b-1; while(i>0&&melBeats().mel[i]===-1&&!(melBeats().and[i]>0)) i--; q=melBeats().and[i]>0?{b:i,h:1}:{b:i,h:0}; }
   const x=melAt(q); if(!(x>0)) return; const y=x+n; if(y<21||y>108) return;
-  pushHist(); if(q.h) melAnd[q.b]=y; else melody[q.b]=y; commit(); renderMelPad(); focusMelCell(); playMelNote(y,q.b); }
+  pushHist(); melEdit((mel,and)=>{ if(q.h) and[q.b]=y; else mel[q.b]=y; }); commit(); renderMelPad(); focusMelCell(); playMelNote(y,q.b); }
 const melNudge=(b,n,h=0)=>melNudgeAt({b,h},n);
 /* the tune as notes {b,n,m}, b and n in beats (a note on the "and" starts half a beat in); a note runs on through holds */
-const melNotes=()=>notesOf(melody,melAnd,chords.reduce((a,c)=>a+c.beats,0));
+const melNotes=()=>notesOf(melBeats().mel,melBeats().and,chords.reduce((a,c)=>a+c.beats,0));
 /* the melody over one pass of the chart, a little louder than the chords */
 function playMelLine(t0,unit,out){ melNotes().forEach(n=>tone(n.m,t0+n.b*unit,n.n*unit*.94,.2,out)); }
-function melClearRange(){ if(!melSel) return; const lo=Math.min(melSel.a,melSel.b), hi=Math.max(melSel.a,melSel.b); pushHist(); for(let i=lo;i<=hi;i++){ if(i<melody.length) melody[i]=null; melAnd[i]=null; } melSel={a:lo,b:lo,h:0}; commit(); renderMelPad(); focusMelCell(); }
+function melClearRange(){ if(!melSel) return; const lo=Math.min(melSel.a,melSel.b), hi=Math.max(melSel.a,melSel.b); pushHist(); melEdit((mel,and)=>{ for(let i=lo;i<=hi;i++){ if(i<mel.length) mel[i]=null; and[i]=null; } }); melSel={a:lo,b:lo,h:0}; commit(); renderMelPad(); focusMelCell(); }
 /* arrows step through the halves of a split beat, then the beats */
 function melMove(d,extend){ if(!melSel) return; const total=chords.reduce((a,c)=>a+c.beats,0);
   if(!extend){ const h=melSel.h||0; if(d>0&&!h&&melSplit(melSel.b)){ melSel={a:melSel.b,b:melSel.b,h:1}; renderChart(); renderMelPad(); focusMelCell(); return; }
@@ -3442,7 +3446,7 @@ let mpTypeVal='';
 function melTypePlan(text){
   if(!melSel||!String(text||'').trim()) return null; const r=parseMelody(text); if(r.bad) return {bad:r.bad}; if(r.tooMany) return {tooMany:r.tooMany};
   const L=barLen(), total=chords.reduce((a,c)=>a+c.beats,0), b0=text.includes('|')?Math.floor(melSel.b/L)*L:melSel.b;
-  let prev=null; for(let i=b0-1;prev==null&&i>=0;i--){ if(melAnd[i]>0) prev=melAnd[i]; else if(melody[i]>0) prev=melody[i]; } prev=prev??67;
+  let prev=null; for(let i=b0-1;prev==null&&i>=0;i--){ if(melBeats().and[i]>0) prev=melBeats().and[i]; else if(melBeats().mel[i]>0) prev=melBeats().mel[i]; } prev=prev??67;
   const near=pc=>{ let m=prev-6; while(mod(m)!==pc) m++; return prev=Math.min(84,Math.max(55,m)); };
   const mel=[], and=[];
   r.beats.forEach((x,i)=>{ mel[i]=x==null?null:x.onset?near(x.pc):-1; and[i]=r.ands[i]!=null?near(r.ands[i]):null; });
@@ -3462,7 +3466,7 @@ function melTypeRead(){
 }
 function melTypePut(){
   const pl=melTypePlan(mpTypeVal); if(!pl||pl.bad||pl.tooMany||!pl.mel.length){ melTypeRead(); return; }
-  pushHist(); pl.mel.forEach((x,i)=>{ const b=pl.b0+i; while(melody.length<=b) melody.push(null); melody[b]=x; melAnd[b]=pl.and[i]; });
+  pushHist(); melEdit((mel,and)=>{ pl.mel.forEach((x,i)=>{ const b=pl.b0+i; while(mel.length<=b) mel.push(null); mel[b]=x; and[b]=pl.and[i]; }); });
   const end=Math.min(pl.b0+pl.mel.length,chords.reduce((a,c)=>a+c.beats,0)-1); melSel={a:end,b:end,h:0}; mpTypeVal='';
   commit(); renderMelPad(); toast(`Put in ${pl.mel.filter(x=>x>0).length+pl.and.filter(x=>x>0).length} notes`,{label:'Undo',fn:undoTo(hist[hist.length-1])});
   document.querySelector('#mpType')?.focus();
@@ -3490,36 +3494,36 @@ function tuneIdeas(b0,b1){
       [up,dn].filter(Boolean).sort((a,b)=>Math.abs(a-n.m)-Math.abs(b-n.m)).forEach(m=>out.push({b:n.b,kind:'clash',title:`Move ${name} ${m>n.m?'up':'down'} to ${nm(m,n.b)}`,
         why:`${name} rubs against ${cn} on a strong beat. ${nm(m,n.b)} is ${cn}’s ${role(m)}, ${Math.abs(m-n.m)===1?'just a half step away':Math.abs(m-n.m)===2?'a step away':'close by'}, so the beat rests on the chord.`,edits:[{b:n.b,h:0,m}]}));
       const near=[up,dn].filter(Boolean).sort((a,b)=>Math.abs(a-n.m)-Math.abs(b-n.m))[0];
-      if(near&&n.n>=1&&!(melAnd[n.b]>0)) out.push({b:n.b,kind:'clash',title:`Lean in: ${nm(near,n.b)} on the beat, then ${name}`,
+      if(near&&n.n>=1&&!(melBeats().and[n.b]>0)) out.push({b:n.b,kind:'clash',title:`Lean in: ${nm(near,n.b)} on the beat, then ${name}`,
         why:`Keeps your ${name}, but half a beat later: ${nm(near,n.b)} lands on the beat with ${cn}, and ${name} becomes a passing note that colours it rather than clashing.`,edits:[{b:n.b,h:0,m:near},{b:n.b,h:1,m:n.m}]});
     }
     /* 2. a leap into the next note */
     const q=notes[i+1];
     if(q&&Math.abs(q.b-(n.b+n.n))<1e-9&&q.b%1===0&&q.b<b1+1e-9){ const d=Math.abs(q.m-n.m), slot=q.b-1;
-      if(d>=3&&slot>=n.b-1e-9&&slot%1===0&&!(melAnd[slot]>0)){ const mids=scaleBetween(n.m,q.m,at(slot).k);
+      if(d>=3&&slot>=n.b-1e-9&&slot%1===0&&!(melBeats().and[slot]>0)){ const mids=scaleBetween(n.m,q.m,at(slot).k);
         if(mids.length){ const pm=d<=4?mids[0]:mids.reduce((x,y)=>Math.abs(y-(n.m+q.m)/2)<Math.abs(x-(n.m+q.m)/2)?y:x), dir=q.m>n.m?'up':'down';
           const iv=d<=4?'3rd':d<=5?'4th':d<=7?'5th':d<=9?'6th':'big leap';
           out.push({b:slot+.5,kind:'smooth',title:`Fill the ${iv} from ${name} ${dir} to ${nm(q.m,q.b)} with ${nm(pm,slot)}`,
             why:d<=4?`A passing note on the “and” walks through the 3rd instead of skipping it: ${name}, ${nm(pm,slot)}, ${nm(q.m,q.b)}.`:`The jump from ${name} ${dir} to ${nm(q.m,q.b)} is a ${iv}. A note in between, half a beat before it, makes it smoother to hear and easier to sing.`,
             edits:[{b:slot,h:1,m:pm}]}); } } }
     /* 3. a long note gets a neighbour */
-    if(on&&n.n>=2&&!(melAnd[n.b]>0)&&melody[n.b+1]===-1&&!(c&&real(c)&&melRel(mod(n.m),ci,n.b)==='clash')){ const sc=inKey(k,()=>scaleSet()); let nb=n.m+1; while(!sc.has(mod(nb))) nb++;
+    if(on&&n.n>=2&&!(melBeats().and[n.b]>0)&&melBeats().mel[n.b+1]===-1&&!(c&&real(c)&&melRel(mod(n.m),ci,n.b)==='clash')){ const sc=inKey(k,()=>scaleSet()); let nb=n.m+1; while(!sc.has(mod(nb))) nb++;
       out.push({b:n.b,kind:'smooth',title:`Give the long ${name} a neighbour: ${name} ${nm(nb,n.b)} ${name}`,
         why:`${name} is held for ${n.n} beats. Stepping up to ${nm(nb,n.b)} and straight back keeps the note but gives it a little motion, the way singers decorate a held note.`,edits:[{b:n.b,h:1,m:nb},{b:n.b+1,h:0,m:n.m}]}); }
   });
   return out.sort((x,y)=>x.b-y.b);
 }
 /* the tune with an idea's edits applied, as copies */
-function tuneWith(edits){ const mel=melody.slice(), and=melAnd.slice(); edits.forEach(e=>{ if(e.h) and[e.b]=e.m; else { while(mel.length<=e.b) mel.push(null); mel[e.b]=e.m; } }); return {mel,and}; }
+function tuneWith(edits){ const mel=melBeats().mel.slice(), and=melBeats().and.slice(); edits.forEach(e=>{ if(e.h) and[e.b]=e.m; else { while(mel.length<=e.b) mel.push(null); mel[e.b]=e.m; } }); return {mel,and}; }
 /* a bar or two around an idea, with its chords, as the tune is now or with the idea */
 function tuneHear(idea,withIt){
   const L=barLen(), total=chords.reduce((a,c)=>a+c.beats,0), bs=idea.edits.map(e=>e.b), b0=Math.floor(Math.min(...bs)/L)*L, b1=Math.min(total,(Math.floor(Math.max(...bs)/L)+1)*L);
-  const {mel,and}=withIt?tuneWith(idea.edits):{mel:melody,and:melAnd}, unit=60/S.tempo*(4/den());
+  const {mel,and}=withIt?tuneWith(idea.edits):{mel:melBeats().mel,and:melBeats().and}, unit=60/S.tempo*(4/den());
   stopAll(); const out=newSession(), t0=actx.currentTime+.05, st=chordStarts();
   chords.forEach((c,i)=>{ const s=Math.max(st[i],b0), e=Math.min(st[i]+c.beats,b1); if(e>s&&real(c)) strum(c,t0+(s-b0)*unit,(e-s)*unit,out,playedVoicing(c)); });
   notesOf(mel,and,total).forEach(n=>{ const s=Math.max(n.b,b0), e=Math.min(n.b+n.n,b1); if(e>s+1e-9) tone(n.m,t0+(s-b0)*unit,(e-s)*unit*.94,.2,out); });
 }
-function tuneUse(idea){ pushHist(); idea.edits.forEach(e=>{ if(e.h) melAnd[e.b]=e.m; else { while(melody.length<=e.b) melody.push(null); melody[e.b]=e.m; } }); commit(); renderMelPad(); toast(`${idea.title.replace(/:.*$/,'')}: done`,{label:'Undo',fn:undoTo(hist[hist.length-1])}); }
+function tuneUse(idea){ pushHist(); melEdit((mel,and)=>{ idea.edits.forEach(e=>{ if(e.h) and[e.b]=e.m; else { while(mel.length<=e.b) mel.push(null); mel[e.b]=e.m; } }); }); commit(); renderMelPad(); toast(`${idea.title.replace(/:.*$/,'')}: done`,{label:'Undo',fn:undoTo(hist[hist.length-1])}); }
 function tuneIdeasHTML(){
   if(!tuneFor) return ''; const L=barLen(), list=tuneIdeas(tuneFor.b0,tuneFor.b1), whole=tuneFor.b0===0&&tuneFor.b1>=chords.reduce((a,c)=>a+c.beats,0);
   const where=whole?'the whole tune':tuneFor.b1-tuneFor.b0<=L?`bar ${tuneFor.b0/L+1}`:`bars ${tuneFor.b0/L+1}–${Math.ceil(tuneFor.b1/L)}`;
@@ -3535,11 +3539,11 @@ const spotOf=b=>{ const L=barLen(); return `Bar ${Math.floor(b/L)+1}, beat ${Mat
 /* the selected bars' melody, harmonized in the key in force there; the results open in Harmonize, set to replace those bars */
 function melHarmonize(){
   const rg=melRangeBars(); if(!rg) return; const beats=[]; let prev=null;
-  for(let i=rg.s0;i<rg.e0;i++){ const x=melody[i]??null; if(x>0){ prev=mod(x); beats.push({pc:prev,onset:true}); } else if(x===-1&&prev!=null) beats.push({pc:prev,onset:false}); else { prev=null; beats.push(null); } }
+  for(let i=rg.s0;i<rg.e0;i++){ const x=melBeats().mel[i]??null; if(x>0){ prev=mod(x); beats.push({pc:prev,onset:true}); } else if(x===-1&&prev!=null) beats.push({pc:prev,onset:false}); else { prev=null; beats.push(null); } }
   if(!beats.some(Boolean)){ toast('Put some notes in those bars first'); return; }
   const ci=chordIdxAt(rg.s0), k=keyAt(Math.max(ci,0));
   const results=inKey(k,()=>harmonize(beats,S.melRate||1));
-  MEL={beats,ands:Array.from({length:rg.e0-rg.s0},(_,i)=>melAnd[rg.s0+i]>0?mod(melAnd[rg.s0+i]):null),results,target:rg};
+  MEL={beats,ands:Array.from({length:rg.e0-rg.s0},(_,i)=>melBeats().and[rg.s0+i]>0?mod(melBeats().and[rg.s0+i]):null),results,target:rg};
   revealEl($('#melOut')); selectTab('left','melody'); if(document.body.classList.contains('drawer-open')===false&&!wideLayout()) selectTab('phone','p-create');
   renderMelody(); $('#melOut').scrollIntoView({block:'nearest'});
   toast(`Chord ideas for ${rg.first===rg.last?'bar '+rg.first:'bars '+rg.first+'–'+rg.last} are in Harmonize`);
@@ -3608,7 +3612,7 @@ function seeded(n){ let s=(n*2654435761)>>>0||1; return ()=>{ s^=s<<13; s>>>=0; 
 /* where the voicing can change: chord starts, tune notes, and the start of a rest in the tune */
 function arrEvents(){
   const total=chords.reduce((a,c)=>a+c.beats,0), st=chordStarts(), starts=new Set(st), ev=[];
-  for(let b=0;b<total;b++){ const x=melody[b]??null, m=melPitch(b);
+  for(let b=0;b<total;b++){ const x=melBeats().mel[b]??null, m=melPitch(b);
     if(b===0||starts.has(b)||x>0||(m==null&&melPitch(b-1)!=null)) ev.push({b,ci:chordIdxAt(b,st),m,on:x>0}); }
   ev.forEach((e,i)=>e.n=(ev[i+1]?.b??total)-e.b);
   return ev;
@@ -3735,14 +3739,14 @@ function autoTop(){
 const arrAutoTune=()=>!melNotes().length&&chords.some(real);
 function arrange(sk=S.arr){
   if(!arrAutoTune()) return arrange0(sk);
-  const km=melody, ka=melAnd; melody=autoTop(); melAnd=[];
-  try{ return arrange0(sk); } finally{ melody=km; melAnd=ka; }
+  const kt=tune; melPut(autoTop(),[]);
+  try{ return arrange0(sk); } finally{ tune=kt; }
 }
 function arrange0(sk){
   const st=ARR_STYLES[sk]; if(!st) return null;
   if(st.orch) return orchestrate();
   const group=arrGroupOf(st), V=arrVoicesFor(st,group), rs={...st,voices:V};
-  const key=JSON.stringify([sk,group,S.arrSeed|0,S.tonic,S.mode,S.meter,chords.map(c=>[c.root,c.q,c.bass,c.beats,c.kc]),melody,melAnd]);
+  const key=JSON.stringify([sk,group,S.arrSeed|0,S.tonic,S.mode,S.meter,chords.map(c=>[c.root,c.q,c.bass,c.beats,c.kc]),melBeats().mel,melBeats().and]);
   if(arrCache[sk]&&arrCache[sk].key===key) return arrCache[sk].val;
   const rnd=seeded((S.arrSeed|0)+1), noise=(S.arrSeed|0)>0, ev=arrEvents(), mi=V.findIndex(v=>v.mel), N=V.length;
   const tuneAt=i=>{ for(let d=0;d<ev.length;d++){ for(const j of [i-d,i+d]) if(ev[j]&&ev[j].m!=null) return ev[j].m; } return 72; };
@@ -3877,7 +3881,7 @@ function arrLanesHTML(ar,r0,r1){ let h=''; const L=barLen(), bad=new Set(arrOutO
 const arrPlayBtn=()=>{ const b=document.querySelector('#arrBar [data-aact="play"]'); if(b) b.innerHTML=playing?IC.stop+'Stop':IC.play+'Play'; };
 function renderArrBar(){
   const el=$('#arrBar'); if(!arrOn()){ el.hidden=true; el.innerHTML=''; return; }
-  const st=ARR_STYLES[S.arr], ar=arrange(), seed=S.arrSeed|0, hasTune=melody.some(x=>x>0)||hasAnd(), N=ar.voices.length;
+  const st=ARR_STYLES[S.arr], ar=arrange(), seed=S.arrSeed|0, hasTune=melBeats().mel.some(x=>x>0)||hasAnd(), N=ar.voices.length;
   const chip=(k,name,r)=>`<span class="vchip${arrMuted(k)?' off':''}"><button type="button" data-amute="${k}" aria-pressed="${!(S.arrMute||[])[k]}" title="${r?`Range ${rangeTxt(r)}. `:''}Mute or unmute this part">${esc(name)}</button><button type="button" data-asolo="${k}" aria-pressed="${arrSolo===k}" aria-label="Hear ${esc(name)} alone" title="Hear this part alone">S</button></span>`;
   const bad=hasTune?arrOutOfRange(ar):[], fixes=bad.length?arrRangeFixes(ar,bad):[], L=barLen();
   const groups=st.groups?`<div class="ab-groups"><span class="label">Singers</span><div class="seg" role="group" aria-label="Who sings">${st.groups.map(g=>`<button type="button" data-agroup="${g}" aria-pressed="${g===ar.group}" title="${esc(ARR_GROUPS[g].full)}: ${ARR_GROUPS[g].v.map(v=>v[0]+' '+rangeTxt([v[2],v[3]])).join(', ')}">${esc(ARR_GROUPS[g].name)}</button>`).join('')}</div>${st.group==='auto'&&!st.groups.includes(S.arrGroup)?'<span class="hint">chosen to fit your tune</span>':''}</div>`:'';
@@ -3889,7 +3893,7 @@ function renderArrBar(){
     <button type="button" class="cp-x" data-aact="close" aria-label="Close arranging">${IC.x}</button></div>
     ${groups}
     <p class="hint ab-blurb">${esc(st.blurb)}${seed?` <span class="ab-ver">Version ${seed+1}.</span>`:''}</p>
-    ${hasTune?range:range+'<p class="hint ab-empty">No tune yet, so the top part sings a line of chord tones, shown in grey in the melody lane. Write your own tune there (tap a box under the chords, then a note) and the parts fill in around it.</p>'}
+    ${hasTune?range:range+'<p class="hint ab-empty">No tune yet, so the top part sings a line of chord tones, shown in grey in the melBeats().mel lane. Write your own tune there (tap a box under the chords, then a note) and the parts fill in around it.</p>'}
     <div class="ab-voices" role="group" aria-label="Parts to hear">${ar.voices.map((v,k)=>chip(k,v.name,v.range)).join('')}${chip(N,S.instrument==='guitar'?'Guitar chords':'Piano chords')}<span class="hint ab-tip">Tap a part to mute it, S to hear it alone. Tap a note in the lanes to see why it’s there.</span></div>`;
 }
 /* ---- why this voicing: the card for a tapped beat ---- */
@@ -4226,7 +4230,7 @@ function renderSubs0(){
   { const own=real(c)?[...new Set(allPcs(c))]:[], extra=keepNotes.filter(pc=>!own.includes(pc));
     h+=`<div class="keep" role="group" aria-label="Notes to keep"><span class="label">Keep note</span>${[...own,...extra].map(pc=>`<button type="button" class="chip" data-keep="${pc}" aria-pressed="${keepNotes.includes(pc)}">${esc(prettyNote(spell(pc)))}${real(c)&&own.includes(pc)?` <small>${esc(roleOf(c,pc))}</small>`:''}</button>`).join('')}
       <select id="keepOther" aria-label="Keep another note"><option value="">+ other note</option>${Array.from({length:12},(_,i)=>mod(S.tonic+i)).filter(pc=>!own.includes(pc)&&!keepNotes.includes(pc)).map(pc=>`<option value="${pc}">${esc(prettyNote(spell(pc)))}</option>`).join('')}</select>
-      <span class="hint">${keepNotes.length?`Only ideas containing ${keepNotes.map(pc=>esc(prettyNote(spell(pc)))).join(' and ')}. ${IC.play} plays it as the top note.`:'Pick a note (e.g. your melody note) that every idea must contain.'}</span></div>`; }
+      <span class="hint">${keepNotes.length?`Only ideas containing ${keepNotes.map(pc=>esc(prettyNote(spell(pc)))).join(' and ')}. ${IC.play} plays it as the top note.`:'Pick a note (e.g. your melBeats().mel note) that every idea must contain.'}</span></div>`; }
   groups.forEach((g,gi)=>{
     h+=`<div class="group" data-gi="${gi}"><div class="group-h"><h3>${esc(g.title)}</h3><p>${esc(g.blurb)}</p></div>`;
     const lim=g.id==='keep'?keepShown:4, shownItems=openGroups.has(g.id)&&g.id!=='keep'?g.items:g.items.slice(0,lim);
@@ -4341,7 +4345,7 @@ function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); render
 /* ============ front door ============ */
 /* a fresh visit opens on an example with some colour in it, and the Create panel opens on "I have chords" */
 const EXAMPLE='G | B7 | Em | Cm';
-const isExample=()=>S.tonic===7&&S.mode==='ionian'&&!melody.some(x=>x!=null)&&chords.map(c=>chordName(c,true)+':'+c.beats+(c.sec||c.kc?'*':'')).join(' ')==='G:4 B7:4 Em:4 Cm:4';
+const isExample=()=>S.tonic===7&&S.mode==='ionian'&&!melBeats().mel.some(x=>x!=null)&&chords.map(c=>chordName(c,true)+':'+c.beats+(c.sec||c.kc?'*':'')).join(' ')==='G:4 B7:4 Em:4 Cm:4';
 /* the most likely key for chords typed by name: in-key chords count most, then secondary dominants, then borrowed ones, and a
    tonic chord at either end tips it */
 function guessKey(list){
@@ -4372,7 +4376,7 @@ function renderDoorRead(){
 function doorAdd(){
   const pl=doorPlan($('#doorIn').value); if(!pl||pl.bad){ renderDoorRead(); $('#doorIn').focus(); return; }
   pushHist(); const list=pl.chords; delete list[0].kc;
-  if(pl.replace){ S.tonic=pl.key.t; S.mode=pl.key.m; chords=list; melody=[]; melAnd=[]; }
+  if(pl.replace){ S.tonic=pl.key.t; S.mode=pl.key.m; chords=list; tune=[]; }
   else { list[0].br=true; chords.push(...list); }
   sel=list[list.length-1].id; $('#doorIn').value=''; commit(); renderDoorRead();
   toast(`${pl.replace?'Started with':'Added'} ${list.filter(real).map(c=>chordName(c)).join(' ')}`);
@@ -4740,7 +4744,7 @@ function explainIdea(C,it,P,N){
   }
   if(!real(C)){ const sp=P?shared(X,P):[]; return `${nX} fills the gap${P?`, ${sp.length?`sharing ${pcNames(sp)} with ${chordName(P)}`:`moving away from ${chordName(P)} with no shared notes`}`:''}${dest}.`; }
   const nC=chordName(C), cp=[...new Set(allPcs(C))], xp=[...new Set(allPcs(X))], sh=cp.filter(pc=>xp.includes(pc)), added=xp.filter(pc=>!cp.includes(pc));
-  const keep=sh.length>=2?`keeps ${pcNamesIn(C,sh)} from ${nC}, so a melody on those notes still fits`:sh.length===1?`keeps only ${pcNamesIn(C,sh)} from ${nC}, so check your melody against it`:`shares no notes with ${nC}, so it lands as a deliberate jolt`;
+  const keep=sh.length>=2?`keeps ${pcNamesIn(C,sh)} from ${nC}, so a melBeats().mel on those notes still fits`:sh.length===1?`keeps only ${pcNamesIn(C,sh)} from ${nC}, so check your melBeats().mel against it`:`shares no notes with ${nC}, so it lands as a deliberate jolt`;
   const bd=brightness(X)-brightness(C), td=(Q[X.q].dom?1:0)-(Q[C.q].dom?1:0), susX=Q[X.q].tri==='sus'&&Q[C.q].tri!=='sus';
   let color='';
   if(susX){ const third=Q[C.q].iv.find(i=>i===3||i===4), sus=Q[X.q].iv.find(i=>i===2||i===5);
@@ -5021,17 +5025,17 @@ function playMelody(beats,list,ands=[]){
 function renderMelody(){
   const el=$('#melOut');
   if(!MEL.results.length){ el.innerHTML=''; return; }
-  const tg=MEL.target, places=tg?{bars:`Over ${tg.first===tg.last?'bar '+tg.first:'bars '+tg.first+'–'+tg.last} (the melody you selected)`,...MEL_PLACES}:MEL_PLACES;
+  const tg=MEL.target, places=tg?{bars:`Over ${tg.first===tg.last?'bar '+tg.first:'bars '+tg.first+'–'+tg.last} (the melBeats().mel you selected)`,...MEL_PLACES}:MEL_PLACES;
   el.innerHTML=`<div class="mel-place"><label class="label" for="melPlace">Put the chords</label><select id="melPlace">${Object.entries(places).map(([k,l])=>`<option value="${k}" ${tg?(k==='bars'?'selected':''):(k===S.melPlace?'selected':'')}>${l}</option>`).join('')}</select></div>`+MEL.results.map((r,i)=>{ const L=barLen(); let pos=0; const bars=[];
     r.list.forEach(c=>{ const b=Math.floor(pos/L); (bars[b]=bars[b]||[]).push(chordName(c)); pos+=c.beats; });
-    return `<div class="mel-row"><span class="mc">${esc(bars.map(b=>b.join(' ')).join(' | '))}</span><span class="ms">${r.hits} of ${r.strong} strong-beat melody notes are chord tones</span>
-      <span class="mb"><button type="button" class="btn small" data-mplay="${i}">${IC.play}With melody</button><button type="button" class="btn small primary" data-muse="${i}">Add to chart</button></span></div>`; }).join('');
+    return `<div class="mel-row"><span class="mc">${esc(bars.map(b=>b.join(' ')).join(' | '))}</span><span class="ms">${r.hits} of ${r.strong} strong-beat melBeats().mel notes are chord tones</span>
+      <span class="mb"><button type="button" class="btn small" data-mplay="${i}">${IC.play}With melBeats().mel</button><button type="button" class="btn small primary" data-muse="${i}">Add to chart</button></span></div>`; }).join('');
 }
 function melodySuggest(){
   const r=parseMelody($('#melIn').value); S.melText=$('#melIn').value; S.melRate=+$('#melRate').value; save();
   if(r.tooMany){ MEL={beats:[],results:[]}; const t=r.tooMany[0]; $('#melOut').innerHTML=`<p class="err">Bar ${t.bar} has ${t.n} ${t.beats?'beats':'notes'}; ${t.beats?`a bar of ${esc(S.meter)} has ${t.max}`:`at most ${t.max} fit in a bar of ${esc(S.meter)}, two to a beat`}. Spread them over two bars with a |.</p>`; return; }
   if(r.bad){ MEL={beats:[],results:[]}; $('#melOut').innerHTML=`<p class="err">Couldn’t read ${r.bad.slice(0,4).map(b=>`“${esc(b)}”`).join(', ')}. Use note names like E, F♯ or Bb, with - to hold and . for a rest.</p>`; return; }
-  if(!r.beats.some(Boolean)){ MEL={beats:[],results:[]}; $('#melOut').innerHTML='<p class="hint">Type a melody above, one note per beat, then press Suggest chords.</p>'; return; }
+  if(!r.beats.some(Boolean)){ MEL={beats:[],results:[]}; $('#melOut').innerHTML='<p class="hint">Type a melBeats().mel above, one note per beat, then press Suggest chords.</p>'; return; }
   MEL={beats:r.beats,ands:r.ands,results:harmonize(r.beats,S.melRate)}; renderMelody();
 }
 
@@ -5308,7 +5312,7 @@ function liveAdd(){ const L=MIDIIN.last; if(!L) return; const n=addChordHere(L.r
 /* share links: key, mode, meter, tempo and the chart text (sections and beat counts included) as base64url JSON after #s= */
 function b64url(str){ let s=''; new TextEncoder().encode(str).forEach(x=>s+=String.fromCharCode(x)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function unb64url(code){ const s=atob(code.replace(/-/g,'+').replace(/_/g,'/')); return new TextDecoder().decode(Uint8Array.from(s,ch=>ch.charCodeAt(0))); }
-const shareCode=()=>{ const t=tuneOfChart(); return b64url(JSON.stringify({v:2,k:S.tonic,m:S.mode,t:S.meter,b:S.tempo,c:serialize(),...(t.length?{tn:t.flatMap(n=>[n.t,n.d,n.m])}:{})})); };
+const shareCode=()=>{ const t=tune; return b64url(JSON.stringify({v:2,k:S.tonic,m:S.mode,t:S.meter,b:S.tempo,c:serialize(),...(t.length?{tn:t.flatMap(n=>[n.t,n.d,n.m])}:{})})); };
 /* inside the claude.ai viewer the page runs in a frame, so the link is built on the viewer's address when the browser shares it */
 function shareBase(){ try{ if(window.top===window) return location.href.split('#')[0]; }catch(e){} const r=document.referrer||''; return /^https:\/\/claude\.ai\//.test(r)?r.split('#')[0]:location.href.split('#')[0]; }
 const shareLinkURL=()=>shareBase()+'#s='+shareCode();
@@ -5359,7 +5363,7 @@ const pickS=src=>Object.fromEntries(SNAPKEYS.filter(k=>src&&src[k]!=null).map(k=
 const pcOk=v=>v==null||(Number.isInteger(v)&&v>=0&&v<12);
 const validItem=x=>x&&typeof x.name==='string'&&x.name.length<=200&&x.snap&&Array.isArray(x.snap.chords)&&x.snap.chords.length<=1000&&x.snap.chords.every(c=>c&&Number.isInteger(c.beats)&&c.beats>0&&c.beats<=256&&Object.prototype.hasOwnProperty.call(Q,c.q)&&pcOk(c.root)&&pcOk(c.bass)&&(c.sec==null||typeof c.sec==='string'));
 function newItem(name,snap){ const now=Date.now(); return {id:'p'+now.toString(36)+Math.random().toString(36).slice(2,7),name,created:now,updated:now,snap:JSON.parse(JSON.stringify(snap))}; }
-const curSnap=()=>({v:2,S:pickS(S),chords:chords.map(({id,...c})=>c),tune:tuneOfChart()});
+const curSnap=()=>({v:2,S:pickS(S),chords:chords.map(({id,...c})=>c),tune:tune.slice()});
 function libSave(){ try{ localStorage.setItem(LIBKEY,JSON.stringify(LIB)); return true; }catch(e){ toast('This browser would not store the library'); return false; } }
 function libLoad(){
   try{ const raw=localStorage.getItem(LIBKEY);
@@ -5561,7 +5565,7 @@ function boot(){
   $('#recipe').onclick=e=>{ const b=e.target.closest('[data-addfams]'); if(!b) return; S.vocab=[...new Set([...S.vocab,...b.dataset.addfams.split(',')])]; commit(); toast(`Vocabulary updated: ${vocabName()}`); };
   $('#gen').onclick=()=>{ generate(); stopAll(); playChart(); };
   $('#regen').onclick=regenUnlocked;
-  $('#clearChart').onclick=()=>{ if(!chords.length&&!melody.some(x=>x!=null)&&!hasAnd()) return; stopAll(); pushHist(); chords=[]; melody=[]; melAnd=[]; melSel=null; sel=null; commit(); renderMelPad(); toast('Cleared: a fresh start',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
+  $('#clearChart').onclick=()=>{ if(!chords.length&&!melBeats().mel.some(x=>x!=null)&&!hasAnd()) return; stopAll(); pushHist(); chords=[]; tune=[]; melSel=null; sel=null; commit(); renderMelPad(); toast('Cleared: a fresh start',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
   let firstVisit=!loaded; try{ if(localStorage.getItem(TAB_KEY)) firstVisit=false; }catch(e){}
   initLayout(); fitScreen();
   /* a first visit on a wide screen opens Create beside the example, on I have chords */
@@ -5596,10 +5600,10 @@ function boot(){
   $('#melGo').onclick=melodySuggest;
   $('#melody').addEventListener('click',e=>{ if(e.target.closest('[data-goto]')) selectTab('left','setkey'); });
   $('#melToLane').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ melodySuggest(); return; }
-    pushHist(); const ms=melodyMidis(r.beats,r.ands); melody=ms.map((n,i)=>n?(n.onset?n.m:-1):null); melAnd=ms.ands.slice(); while(melody.length&&melody[melody.length-1]==null&&!(melAnd[melody.length-1]>0)) melody.pop();
-    if(melody[0]===-1) melody[0]=null; S.showMel=true; melSel={a:0,b:0}; commit(); toast('The melody is in the lane under the chart, from bar 1',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
+    pushHist(); const ms=melodyMidis(r.beats,r.ands); melPut(ms.map((n,i)=>n?(n.onset?n.m:-1):null),ms.ands.slice());
+    S.showMel=true; melSel={a:0,b:0}; commit(); toast('The melBeats().mel is in the lane under the chart, from bar 1',{label:'Undo',fn:undoTo(hist[hist.length-1])}); };
   $('#melIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); melodySuggest(); } };
-  $('#melPlay').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ toast(r.tooMany?`Bar ${r.tooMany[0].bar} has too many notes to fit`:'Type a melody first: note names, - to hold, . to rest'); return; } playMelody(r.beats,null,r.ands); };
+  $('#melPlay').onclick=()=>{ const r=parseMelody($('#melIn').value); if(r.bad||r.tooMany||!r.beats.some(Boolean)){ toast(r.tooMany?`Bar ${r.tooMany[0].bar} has too many notes to fit`:'Type a melBeats().mel first: note names, - to hold, . to rest'); return; } playMelody(r.beats,null,r.ands); };
   $('#melOut').addEventListener('click',e=>{ const p=e.target.closest('[data-mplay]'), u=e.target.closest('[data-muse]');
     if(p){ const r=MEL.results[+p.dataset.mplay]; playMelody(MEL.beats,r.list.map(c=>({...c})),MEL.ands||[]); }
     if(u) placeHarmony(MEL.results[+u.dataset.muse].list); });
@@ -5846,7 +5850,7 @@ function boot(){
   $('#arrBar').addEventListener('click',e=>{ const st=e.target.closest('[data-astyle]'), mu=e.target.closest('[data-amute]'), so=e.target.closest('[data-asolo]'), a=e.target.closest('[data-aact]');
     if(a&&a.dataset.aact==='play'){ if(playing) stopAll(); else playChart(); return; }
     const gr=e.target.closest('[data-agroup]'), fx=e.target.closest('[data-afix]');
-    if(fx){ const [kind,t]=fx.dataset.afix.split(':'); if(kind==='oct'){ pushHist(); melody=melody.map(x=>x>0?Math.min(108,Math.max(21,x+ +t)):x); melAnd=melAnd.map(x=>x>0?Math.min(108,Math.max(21,x+ +t)):null); commit(); toast(`Moved the tune ${+t<0?'down':'up'} an octave`); } else transpose(+t); return; }
+    if(fx){ const [kind,t]=fx.dataset.afix.split(':'); if(kind==='oct'){ pushHist(); tune=tune.map(p=>({...p,m:Math.min(108,Math.max(21,p.m+ +t))})); commit(); toast(`Moved the tune ${+t<0?'down':'up'} an octave`); } else transpose(+t); return; }
     if(gr){ S.arrGroup=gr.dataset.agroup; arrSolo=null; }
     else if(st){ S.arr=st.dataset.astyle; S.arrSeed=0; arrSolo=null; S.arrMute=Array(9).fill(false); }
     else if(mu){ const k=+mu.dataset.amute, m=(S.arrMute||[]).slice(0,9); while(m.length<9) m.push(false); m[k]=!m[k]; S.arrMute=m; arrSolo=null; }
@@ -5878,7 +5882,7 @@ function boot(){
     if(arrAt!=null&&e.target.closest('.acell')){ arrAt=null; renderArrWhy(); }
     if(partAt!=null&&e.target.closest('.pcell')){ partAt=null; renderPartWhy(); renderChart(); } });
   $('#rows').addEventListener('click',e=>{ const c=e.target.closest('.mcell'); if(!c) return; e.stopPropagation(); const b=+c.dataset.mb, h=+(e.target.closest('[data-mh]')?.dataset.mh||0);
-    melSel=e.shiftKey&&melSel?{a:melSel.a,b,h:0}:{a:b,b,h}; renderChart(); renderMelPad(); focusMelCell(); const x=h?melAnd[b]:melody[b]; if(x>0&&!e.shiftKey) playMelNote(x,b); },true);
+    melSel=e.shiftKey&&melSel?{a:melSel.a,b,h:0}:{a:b,b,h}; renderChart(); renderMelPad(); focusMelCell(); const x=h?melBeats().and[b]:melBeats().mel[b]; if(x>0&&!e.shiftKey) playMelNote(x,b); },true);
   $('#melPad').addEventListener('click',e=>{ const n=e.target.closest('[data-mpn]'), a=e.target.closest('[data-mp]'); if(!melSel) return; const b=melSel.b;
     if(n) return melSet(b,melOctave(+n.dataset.mpn,b,melSel.h||0));
     if(!a) return; const k=a.dataset.mp;
@@ -5895,10 +5899,10 @@ function boot(){
   $('#melPad').addEventListener('input',e=>{ if(e.target.id==='mpType'){ mpTypeVal=e.target.value; melTypeRead(); } });
   $('#melPad').addEventListener('keydown',e=>{ if(e.target.id==='mpType'){ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); melTypePut(); } if(e.key==='Escape'){ e.target.blur(); } } });
   $('#melPad').addEventListener('change',e=>{ if(!melSel) return; const b=melSel.b, h=melSplit(b)?melSel.h||0:0;
-    if(e.target.id==='mpNoteSel'){ const v=e.target.value; if(v==='') return melSet(b,null,false,h); const cur=h?melAnd[b]:melody[b], was=cur===-1?melPitch(b):cur;
+    if(e.target.id==='mpNoteSel'){ const v=e.target.value; if(v==='') return melSet(b,null,false,h); const cur=h?melBeats().and[b]:melBeats().mel[b], was=cur===-1?melPitch(b):cur;
       /* the same octave as the note it replaces, or the nearest to the note before */
       const pc=+v, m=was>0?Math.floor(was/12)*12+pc:melOctave(pc,b,h); return melSet(b,m,false,h); }
-    if(e.target.id==='mpOctSel'){ const cur=h?melAnd[b]:melody[b]; if(!(cur>0)) return; return melSet(b,mod(cur)+12*(+e.target.value+1),false,h); } });
+    if(e.target.id==='mpOctSel'){ const cur=h?melBeats().and[b]:melBeats().mel[b]; if(!(cur>0)) return; return melSet(b,mod(cur)+12*(+e.target.value+1),false,h); } });
   $('#melPad').addEventListener('click',e=>{ const t=e.target.closest('[data-ti]'); if(!t) return; const x=$('#melPad')._tune?.[+t.dataset.k]; if(!x) return;
     if(t.dataset.ti==='use') tuneUse(x); else tuneHear(x,t.dataset.ti==='with'); });
   $('#rows').addEventListener('keydown',e=>{ const c=e.target.closest('.mcell'); if(!c||e.metaKey||e.ctrlKey) return; e.stopPropagation(); const b=+c.dataset.mb; if(!melSel||melSel.b!==b) melSel={a:b,b,h:0};
@@ -6031,7 +6035,7 @@ function boot(){
   if(fromLink){ save(); toast('Loaded the shared progression'); }
 }
 function transpose(n){
-  pushHist(); S.tonic=mod(S.tonic+n); melody=melody.map(x=>x>0?Math.min(108,Math.max(21,x+n)):x); melAnd=melAnd.map(x=>x>0?Math.min(108,Math.max(21,x+n)):null);
+  pushHist(); S.tonic=mod(S.tonic+n); tune=tune.map(p=>({...p,m:Math.min(108,Math.max(21,p.m+n))}));
   chords=chords.map(c=>{ const o=real(c)?{...c,root:mod(c.root+n),bass:c.bass==null?null:mod(c.bass+n)}:{...c}; if(kcOk(c.kc)) o.kc={...c.kc,t:mod(c.kc.t+n)}; return o; });
   commit(); toast(`Transposed ${n>0?'up':'down'} ${Math.abs(n)} half step${Math.abs(n)>1?'s':''} to ${keyName()}`);
 }
