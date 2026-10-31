@@ -1813,6 +1813,58 @@ async function launchSuite() {
   }
 }
 
+async function breakAway() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 800 } });
+  await page.goto(URL_);
+  const set = (txt, mel) => page.evaluate(([t, m]) => { pushHist(); S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg(t).chords; melody = m || []; melAnd = []; sel = chords[0].id; commit(); }, [txt, mel]);
+  const rep = () => page.evaluate(() => { const r = baReport(); return { still: r.still, total: r.total, c: r.c, n: r.n, bars: r.bars }; });
+  await set('C | G | Am | F', [60, 62, 64, 65, 67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60]);
+  check('break away: off until asked for', await page.evaluate(() => document.querySelector('#breakaway').hidden));
+  await page.click('[data-fa=breakaway]');
+  check('break away: an untouched chart follows the original in every bar', (await rep()).still === 4 && (await page.textContent('#breakaway')).includes('4 of 4 bars'));
+  check('break away: bars are tagged in the chart with words', await page.evaluate(() => [...document.querySelectorAll('.ba-tag')].every(e => e.textContent === 'chords + notes')) && await page.locator('.ba-tag').count() === 4);
+  await page.evaluate(() => transpose(5));
+  check('break away: transposing does not count as moving away', (await rep()).still === 4 && (await rep()).n === 4);
+  await page.evaluate(() => transpose(-5));
+  await page.evaluate(() => { pushHist(); chords[0].q = 'maj7'; commit(); });
+  check('break away: adding colour to a chord is not a change', (await rep()).c === 4);
+  await set('F | G | Am | C', [60, 62, 64, 65, 67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60]);
+  const r1 = await rep();
+  check('break away: changing a bar’s chord leaves its notes counted', !r1.bars[0].c && r1.bars[0].n && r1.c === 2 && r1.still === 4, JSON.stringify(r1));
+  await set('Db | Ab | Bbm | Gb');
+  const r2 = await rep();
+  check('break away: all bars changed and no tune reads as moved away', r2.still === 0 && (await page.textContent('#breakaway')).includes('None of your 4 bars'), JSON.stringify(r2));
+  await set('Am | F | C | G');
+  const r3 = await rep();
+  check('break away: a run moved elsewhere in the song still counts', r3.bars[0].c && r3.bars[1].c, JSON.stringify(r3.bars));
+  await set('C | G | Am | F', [60, 62, 64, 65, 67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60]);
+  await page.click('#breakaway [data-ba=chord]');
+  check('break away: Try swaps in a chord that moves that bar', !(await rep()).bars[0].c);
+  check('break away: the swapped chord keeps the tune’s note', await page.evaluate(() => pcsOf(chords[0]).includes(0)));
+  check('break away: bar 1 now reports notes only', (await page.textContent('#breakaway')).includes('Chords match in 3'));
+  await page.evaluate(() => undo());
+  await page.click('#breakaway li:first-child [data-ba=flip]');
+  check('break away: flipping a bar takes it away from the original’s notes', !(await rep()).bars[0].n);
+  check('break away: the flipped tune keeps its first note and stays in the key', await page.evaluate(() => melody[0] === 60 && melody.slice(0, 4).every(m => scaleSet().has(mod(m)))));
+  await page.evaluate(() => undo());
+  const li = page.locator('#breakaway li:first-child');
+  await li.locator('[data-ba=late]').click();
+  const r4 = await rep();
+  check('break away: starting a bar a beat later keeps its notes but gives it a new rhythm', r4.bars[0].n && !r4.bars[0].r, JSON.stringify(r4.bars[0]));
+  const before = await page.evaluate(() => JSON.stringify([chords, melody, S.tonic]));
+  await page.click('#breakaway [data-ba=hear]');
+  check('break away: the original plays and the chart is left alone', await page.evaluate(() => playing && baHearing) && before === await page.evaluate(() => JSON.stringify([chords, melody, S.tonic])));
+  await page.click('#breakaway [data-ba=hear]');
+  check('break away: the button stops the original', !(await page.evaluate(() => playing)));
+  await page.reload();
+  check('break away: the original survives a reload', (await page.locator('#breakaway').isVisible()) && (await page.evaluate(() => BA.chords.length === 4 && BA.melody.length === 16)));
+  await page.click('#breakaway [data-ba=stop]');
+  check('break away: stopping removes it and offers Undo', await page.evaluate(() => BA === null && !localStorage.getItem(BA_KEY)) && await page.locator('#toast button').isVisible());
+  await page.click('#toast button');
+  check('break away: Undo brings the original back', await page.evaluate(() => BA && !!localStorage.getItem(BA_KEY)));
+  check('break away: no console errors', !page.errors.length, page.errors.join(' | '));
+  await ctx.close();
+}
 async function searchSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(URL_);
@@ -2133,6 +2185,7 @@ try {
   await searchSuite();
   await dragSuite();
   await launchSuite();
+  await breakAway();
   await menus();
   await layout();
   await hardening();

@@ -568,7 +568,7 @@ body.focus .dock{left:0}
   .chart-card>.chart-head,.chart-card>#err,.chart-card>#arrBar{order:1}
   .chart-card>#rows{order:2}
   .chart-card>#exampleNote{order:3}
-  .chart-card>#tension,.chart-card>#formBar{order:4}
+  .chart-card>#tension,.chart-card>#formBar,.chart-card>#breakaway{order:4}
   .chart-head{row-gap:6px}
   #chartTitle{font-size:calc(26px*var(--fs,1));display:inline;margin-right:8px}
   .chart-head>div:first-child{display:flex;align-items:baseline;flex-wrap:wrap}
@@ -959,6 +959,15 @@ select.btn{border-radius:var(--r-pill)}
 .form-rename{display:inline-flex;gap:4px}
 .form-rename input{width:130px;height:calc(30px*var(--fs,1));border:1px solid var(--line);border-radius:8px;padding:0 8px;background:var(--surface);color:var(--ink);font:500 calc(13px*var(--fs,1)) var(--f-ui)}
 .form-hint{margin:0;font-size:calc(13px*var(--fs,1))}
+.breakaway{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--sunk);margin:0 0 10px}
+.breakaway[hidden]{display:none}
+.ba-head{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.ba-head b{flex:1 1 220px;font-size:calc(15px*var(--fs,1))}
+.ba-sub,.ba-note{margin:0;font-size:calc(13px*var(--fs,1));color:var(--muted)}
+.ba-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ba-list li{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;padding:6px 8px;border-radius:9px;background:var(--surface);font-size:calc(14px*var(--fs,1))}
+.ba-list li>span{flex:1 1 100%}
+.bar .ba-tag{position:absolute;top:3px;right:6px;z-index:1;padding:0 5px;border-radius:5px;background:var(--accent-soft);color:var(--ink);font:600 calc(11px*var(--fs,1))/1.4 var(--f-ui);pointer-events:none}
 .fold-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 4px;padding:8px 12px;border:1.5px dashed var(--line);border-radius:12px;font-size:calc(13.5px*var(--fs,1));color:var(--muted)}
 .fold-row.playing{border-color:var(--ink);color:var(--ink);border-style:solid}
 @media (max-width:759px){ .form-toggles{margin-left:0} .fchips{flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px} .fchip{flex:none} }
@@ -1234,6 +1243,7 @@ body.dock-compact .dock #play.play-big{height:calc(38px*var(--fs,1));font-size:c
     <div class="err" id="err" hidden></div>
     <div class="tension" id="tension"></div>
     <div class="formbar" id="formBar" hidden role="group" aria-label="Song form"></div>
+    <div class="breakaway" id="breakaway" hidden role="region" aria-label="Break away from the original"></div>
     <div class="arrbar" id="arrBar" hidden role="group" aria-label="Arrange"></div>
     <div class="example-note" id="exampleNote" hidden></div>
     <div class="rows" id="rows"></div>
@@ -2464,10 +2474,10 @@ function clearTimers(){ timers.forEach(clearTimeout); timers=[]; }
    (for copying and screen readers); the visible mark is drawn over them. */
 const chordHTML=c=>esc(chordName(c)).replace(/[♭♯]/g,m=>`<span class="acc" data-g="${m==='♭'?'b':'#'}">${m}</span>`);
 const IC={play:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5v9l7.5-4.5z" fill="currentColor"/></svg>',stop:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor"/></svg>',left:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8H3.5M7.5 4 3.5 8l4 4"/></svg>',right:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9.5M8.5 4l4 4-4 4"/></svg>',down:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>',x:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>'};
-function stopAll(){ abReset(); midiAllOff(); clearTimers(); if(actx&&session){ newSession(); } playing=false; PASSES=[]; PLAYING_ID=null; document.querySelectorAll('.slot.playing,.fold-row.playing').forEach(e=>e.classList.remove('playing')); $('#play').innerHTML=IC.play+'Play'; arrPlayBtn(); }
+function stopAll(){ if(baHearing){ baHearing=false; renderBreak(); } abReset(); midiAllOff(); clearTimers(); if(actx&&session){ newSession(); } playing=false; PASSES=[]; PLAYING_ID=null; document.querySelectorAll('.slot.playing,.fold-row.playing').forEach(e=>e.classList.remove('playing')); $('#play').innerHTML=IC.play+'Play'; arrPlayBtn(); }
 function playChart(){
   if(!chords.some(real)){ stopAll(); toast('Add a chord to play: press + Add chord or Generate'); return; }
-  abReset(); const a=ac(); clearTimers(); const out=newSession(); playing=true; $('#play').innerHTML=IC.stop+'Stop'; arrPlayBtn();
+  baHearing=false; abReset(); const a=ac(); clearTimers(); const out=newSession(); playing=true; $('#play').innerHTML=IC.stop+'Stop'; arrPlayBtn();
   playPass(a.currentTime+.08,out);
 }
 /* one pass through the chart from audio time t. The next pass is queued a little before this one ends and starts exactly
@@ -2499,7 +2509,7 @@ function playPass(t,out,from=0){
   GATE=0;
   const end=t;
   timers.push(setTimeout(()=>{ if(!playing) return;
-    if(S.loop&&chords.some(real)) playPass(Math.max(end,actx.currentTime+.03),out);
+    if(S.loop&&!baHearing&&chords.some(real)) playPass(Math.max(end,actx.currentTime+.03),out);
     else timers.push(setTimeout(()=>{ if(playing) stopAll(); },Math.max(0,(end-actx.currentTime)*1000)));
   },Math.max(0,(end-a.currentTime-LOOP_AHEAD)*1000)));
 }
@@ -2507,7 +2517,7 @@ let PLAYING_ID=null;
 function markPlaying(id){ PLAYING_ID=id; document.querySelectorAll('.slot.playing,.fold-row.playing').forEach(e=>e.classList.remove('playing')); if(id!=null) document.querySelectorAll(`.slot[data-id="${id}"],.fold-row[data-ids~="${id}"]`).forEach(e=>e.classList.add('playing')); }
 /* the chart changed while playing: carry on from the same beat with the new chart, rather than finishing the old pass first */
 function resyncPlay(){
-  if(!playing||!actx||!PASSES.length) return;
+  if(!playing||baHearing||!actx||!PASSES.length) return;
   const now=actx.currentTime, cur=[...PASSES].reverse().find(p=>p.t<=now)||PASSES[0];
   if(cur.sig===playSig()) { markPlaying(PLAYING_ID); return; }
   if(!chords.some(real)){ stopAll(); return; }
@@ -3054,6 +3064,7 @@ function slotName(c,a){
   return `style="--n:${nameLen(full)};--nr:${nameLen(r)};--nq:${nameLen(rest)}"><span class="nr">${html.slice(0,split)}</span>${rest?`<span class="nq">${html.slice(split)}</span>`:''}`;
 }
 function renderChart(){
+  baNow=baReport();
   const L=barLen(), per=rowsPer=barsPerRow(), rows=$('#rows');
   const total=chords.reduce((a,c)=>a+c.beats,0), nBars=Math.max(1,Math.ceil(total/L)), rowBeats=per*L;
   let html='', starts=[], pos=0, tileNewRow=false; chords.forEach(c=>{ starts.push(pos); pos+=c.beats; });
@@ -3079,7 +3090,7 @@ function renderChart(){
     if(row.label||row.kc) html+=`<div class="sec-label"${rk>=0?` data-sec="${rk}" title="Drag to move this section (hold Option/Alt to copy it)"`:''}>${row.label?esc(row.label):''}${row.kc?`<span class="kc-tag" title="Key change">Key: ${esc(keyLabel(row.kc))}</span>`:''}</div>`;
     html+=`<div class="row${S.showMel?' has-mel':''}${ar?' has-arr':''}${pp?' has-part':''}" data-rb="${rowBeats}" style="grid-template-columns:repeat(${rowBeats},minmax(0,1fr))">`;
     for(let b=0;b<row.n;b++){ const bi=row.start+b;
-      html+=`<div class="bar${bi===nBars-1?' last':''}" style="grid-column:${b*L+1} / span ${L}${ar||pp?`;grid-row:1 / span ${span}`:''}"><span class="bn">${bi+1}</span><div class="ticks" style="grid-template-columns:repeat(${L},1fr)">${Array.from({length:L},(_,k)=>{ const cy=CYCLES[S.meter], gi=cy?cy.starts.indexOf(k):-1; return `<i class="${accents.has(k)?'g':''}"${gi>=0?` data-m="${cy.marks[gi]}"`:''}></i>`; }).join('')}</div></div>`; }
+      html+=`<div class="bar${bi===nBars-1?' last':''}" style="grid-column:${b*L+1} / span ${L}${ar||pp?`;grid-row:1 / span ${span}`:''}"><span class="bn">${bi+1}</span>${baTag(bi)}<div class="ticks" style="grid-template-columns:repeat(${L},1fr)">${Array.from({length:L},(_,k)=>{ const cy=CYCLES[S.meter], gi=cy?cy.starts.indexOf(k):-1; return `<i class="${accents.has(k)?'g':''}"${gi>=0?` data-m="${cy.marks[gi]}"`:''}></i>`; }).join('')}</div></div>`; }
     chords.forEach((c,i)=>{
       const s=Math.max(starts[i],r0), e=Math.min(starts[i]+c.beats,r1); if(e<=s) return;
       const tie=s>starts[i], a=analyze(c);
@@ -3205,8 +3216,102 @@ function renderFormBar(){
   el.hidden=false;
   el.innerHTML=`<div class="form-head"><span class="label">Song form</span><div class="fchips" role="group" aria-label="Sections in order">${secs.map(chip).join('')}</div>
     <button type="button" class="btn small" data-fa="mark" aria-expanded="${!!(formEdit&&formEdit.mark)}">+ Name a section</button>
+    <button type="button" class="btn small" data-fa="breakaway" aria-pressed="${!!BA}" title="Keep this chart as the original, then see which bars still follow it as you change them">Break away</button>
     <span class="form-toggles"><label class="check"><input type="checkbox" id="foldForm" ${S.foldForm?'checked':''}> Fold repeats</label><label class="check" title="Changing a chord in one Chorus changes every Chorus that matched it"><input type="checkbox" id="linkForm" ${S.linkForm?'checked':''}> Link repeats</label></span></div>
     ${acts}${!named&&!formEdit&&!formHintGone()?'<p class="hint form-hint">Name the sections (Verse, Chorus…) to see the song’s form here. Repeats then fold to one line, and changing one Chorus changes them all. <button type="button" class="linkbtn" data-fa="hidehint">Got it</button></p>':''}`;
+}
+/* ============ break away ============ */
+/* The chart you start from is kept as the original, and each bar is checked against it: do its chords still follow, and do
+   its notes? Key doesn't count (a transposed copy still follows), and neither do added colours (C and Cmaj7 are the same
+   chord here), slash basses, or where a section sits: a bar also follows when it and a neighbour turn up together anywhere
+   in the original. Notes follow when three quarters of them still run in order, so a small rhythm or pitch change is not
+   counted as leaving. The original lives only in this browser, outside undo and the library. */
+const BA_KEY='changes-breakaway-v1';
+let BA=null, baNow=null, baHearing=false;
+function baLoad(){ try{ const d=JSON.parse(localStorage.getItem(BA_KEY)||'null'); if(!d) return; const list=sanitizeChords(d.chords); if(!list||!list.length) return;
+  BA={S:sanitizeS(pickS(d.S)),chords:list,melody:sanitizeMelody(d.melody)||[],melAnd:sanitizeMelAnd(d.melAnd)||[]}; }catch(e){} }
+function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({S:BA.S,chords:BA.chords.map(({id,...c})=>c),melody:BA.melody,melAnd:BA.melAnd})); else localStorage.removeItem(BA_KEY); }catch(e){} }
+function baToggle(){
+  if(BA){ const old=BA; if(baHearing) stopAll(); BA=null; baStore(); renderAll(); toast('Stopped comparing. The original is gone from here.',{label:'Undo',fn:()=>{ BA=old; baStore(); renderAll(); }}); return; }
+  if(!chords.some(real)){ toast('Add the chords you want to move away from first'); return; }
+  const snap=JSON.parse(JSON.stringify(curSnap())); BA={S:snap.S,chords:sanitizeChords(snap.chords),melody:snap.melody||[],melAnd:snap.melAnd||[]}; baStore(); renderAll();
+}
+const baChord=(c,shift=0)=>mod(c.root+shift)+(Q[c.q].tri||c.q);
+/* one entry per bar: its chords, its notes and where they start */
+function baBars(list,mel,and,L,shift=0){
+  const out=[], at=i=>out[i]||(out[i]={ch:[],notes:[],on:[]}); let pos=0;
+  list.forEach(c=>{ for(let b=0;b<c.beats;b++){ const bar=at(Math.floor((pos+b)/L)); if(!real(c)) continue; const k=baChord(c,shift); if(bar.ch[bar.ch.length-1]!==k) bar.ch.push(k); } pos+=c.beats; });
+  for(let b=0;b<pos;b++){ const bar=at(Math.floor(b/L)), put=(m,t)=>{ const pc=mod(m+shift); if(bar.notes[bar.notes.length-1]!==pc) bar.notes.push(pc); bar.on.push(t); };
+    if(mel[b]>0) put(mel[b],b%L*2); if(and[b]>0) put(and[b],b%L*2+1); }
+  out.forEach(x=>{ x.chs=x.ch.join(' '); x.rhy=x.on.join(' ')+'/'+L; }); return out;
+}
+const baSameCh=(a,b)=>!!a&&!!b&&!!a.chs&&a.chs===b.chs;
+function baSameNotes(a,b){ if(!a||!b||!a.notes.length||!b.notes.length) return false; const x=a.notes, y=b.notes; let row=new Array(y.length+1).fill(0);
+  for(let i=0;i<x.length;i++){ const nx=[0]; for(let j=0;j<y.length;j++) nx[j+1]=x[i]===y[j]?row[j]+1:Math.max(row[j+1],nx[j]); row=nx; }
+  return row[y.length]/Math.max(x.length,y.length)>=.75; }
+/* the original's bar that bar i follows, or -1: the bar in the same place, or a two-bar run anywhere */
+function baMatch(A,B,i,eq){ if(eq(A[i],B[i])) return i;
+  for(const o of [0,-1]){ const x=A[i+o], y=A[i+o+1]; if(!x||!y) continue; for(let j=0;j<B.length-1;j++) if(eq(x,B[j])&&eq(y,B[j+1])) return j-o; }
+  return -1; }
+function baReport(){
+  if(!BA) return null; const L=barLen(), rL=parseInt((BA.S.meter||'4/4').split('/')[0],10), A=baBars(chords,melody,melAnd,L);
+  const d=mod(S.tonic-(BA.S.tonic??S.tonic)), Bs=[baBars(BA.chords,BA.melody,BA.melAnd,rL)]; if(d) Bs.push(baBars(BA.chords,BA.melody,BA.melAnd,rL,d));
+  const bars=A.map((a,i)=>{ let c=false, n=false, r=false;
+    for(const B of Bs){ if(baMatch(A,B,i,baSameCh)>=0) c=true; const j=baMatch(A,B,i,baSameNotes); if(j>=0){ n=true; if(B[j]&&B[j].rhy===a.rhy) r=true; } }
+    return {c,n,r,tune:a.notes.length>0,empty:!a.ch.length&&!a.notes.length}; });
+  const live=bars.filter(b=>!b.empty); return {bars,total:live.length,still:live.filter(b=>b.c||b.n).length,c:live.filter(b=>b.c).length,n:live.filter(b=>b.n).length};
+}
+function baTag(i){ const b=baNow&&baNow.bars[i]; if(!b||!(b.c||b.n)) return ''; const t=b.c&&b.n?'chords + notes':b.c?'chords':b.r?'notes + rhythm':'notes'; return `<span class="ba-tag" title="Still follows the original: ${t}">${t}</span>`; }
+/* a chord for bar i that the original doesn't have there, and that keeps the tune's note when there is one */
+function baChordIdea(i){
+  const L=barLen(), st=chordStarts(), b0=i*L, idx=chordIdxAt(b0,st); if(idx<0||!real(chords[idx])||chords[idx].lock) return null;
+  const was=baChord(chords[idx]), note=melPitch(b0), pc=note>0?mod(note):null;
+  const {groups}=inKey(keyAt(idx),()=>suggestions(idx));
+  for(const g of groups) for(const it of g.items){ if(it.chords.length!==1||it.outside) continue; const c=it.chords[0]; if(baChord(c)===was) continue; if(pc!=null&&!pcsOf(c).includes(pc)) continue; return {idx,c}; }
+  return null;
+}
+/* the bar's tune turned upside down around its first note, kept in the key */
+function baFlipped(i){
+  const L=barLen(), b0=i*L, idx=chordIdxAt(b0), sc=inKey(keyAt(Math.max(idx,0)),()=>scaleSet()), first=[...Array(L).keys()].map(k=>melody[b0+k]>0?melody[b0+k]:melAnd[b0+k]>0?melAnd[b0+k]:0).find(Boolean); if(!first) return null;
+  const fix=m=>{ let x=first-(m-first); for(let k=0;k<6;k++){ if(sc.has(mod(x-k))){ x-=k; break; } if(sc.has(mod(x+k))){ x+=k; break; } } return Math.min(84,Math.max(55,x)); };
+  const mel=[], and=[]; let moved=false; for(let k=0;k<L;k++){ const x=melody[b0+k], y=melAnd[b0+k]; mel.push(x>0?fix(x):x??null); and.push(y>0?fix(y):y??null); if((x>0&&mel[k]!==x)||(y>0&&and[k]!==y)) moved=true; }
+  return moved?{mel,and}:null;
+}
+function baPutBar(i,mel,and){ const L=barLen(), b0=i*L, total=chords.reduce((a,c)=>a+c.beats,0); pushHist(); S.showMel=true; while(melody.length<total) melody.push(null); while(melAnd.length<total) melAnd.push(null); mel.forEach((x,k)=>{ if(b0+k<total){ melody[b0+k]=x; melAnd[b0+k]=and[k]; } }); commit(); }
+function baIdeas(){
+  if(!baNow) return []; const out=[], order=baNow.bars.map((b,i)=>({...b,i})).filter(b=>!b.empty&&(b.c||b.n)).sort((a,b)=>(b.c&&b.n)-(a.c&&a.n)||a.i-b.i);
+  for(const b of order){ if(out.length>=3) break; const chord=b.c?baChordIdea(b.i):null, flip=b.n?baFlipped(b.i):null, late=b.n&&b.r&&barLen()>1; if(!chord&&!flip&&!late) continue; out.push({...b,chord,flip:!!flip,late}); }
+  return out;
+}
+function renderBreak(){
+  const el=$('#breakaway'); el.hidden=!BA; if(!BA) return; const r=baNow, plan=baIdeas(), name=x=>esc(inKey(keyAt(x.idx),()=>chordName(x.c)));
+  const say=x=>x.c&&x.n?'chords and notes both match':x.c?'chords match':x.r?'notes and rhythm match':'notes match, with a new rhythm';
+  const head=!r.total?'Nothing to compare yet':!r.still?`None of your ${r.total} bars still match the original`:`${r.still} of ${r.total} bar${r.total>1?'s':''} still follow the original`;
+  el.innerHTML=`<div class="ba-head"><b>${head}</b><button type="button" class="btn small" data-ba="hear" aria-pressed="${baHearing}">${baHearing?'Stop the original':'Hear the original'}</button><button type="button" class="btn small" data-ba="yours">Hear yours</button><button type="button" class="btn small" data-ba="stop">Stop comparing</button></div>
+    ${r.still?`<p class="ba-sub">Chords match in ${r.c}, notes in ${r.n}.</p>`:''}
+    ${plan.length?`<ul class="ba-list">${plan.map(x=>`<li data-i="${x.i}"><span><button type="button" class="linkbtn" data-ba="go">Bar ${x.i+1}</button>: ${say(x)}.</span>${x.chord?`<button type="button" class="btn small" data-ba="hearc" aria-label="Hear ${name(x.chord)}">${IC.play}</button><button type="button" class="btn small" data-ba="chord">Try ${name(x.chord)}</button>`:''}${x.flip?'<button type="button" class="btn small" data-ba="flip">Flip the tune’s shape</button>':''}${x.late?'<button type="button" class="btn small" data-ba="late" title="Rests on the first beat and moves the notes along; a note on the last beat drops off">Start a beat later</button>':''}</li>`).join('')}</ul>`:''}
+    <p class="ba-note">This counts matching chords and notes, not how the song sounds, so let your ear decide. It can’t tell you a song is legally safe. The original stays in this browser.</p>`;
+  el._plan=plan;
+}
+function baHear(){
+  if(baHearing){ stopAll(); renderBreak(); return; }
+  const keep={chords,melody,melAnd,S:Object.fromEntries(['tonic','mode','meter','tempo','showMel','melPlay','arrShow'].map(k=>[k,S[k]]))}; stopAll(); const a=ac(); clearTimers(); const out=newSession();
+  try{ chords=BA.chords; melody=BA.melody; melAnd=BA.melAnd; Object.assign(S,BA.S,{showMel:true,melPlay:true,arrShow:false}); PLAN=null; guitarPlan.cache=null;
+    baHearing=true; playing=true; $('#play').innerHTML=IC.stop+'Stop'; arrPlayBtn(); playPass(a.currentTime+.08,out); }
+  finally{ chords=keep.chords; melody=keep.melody; melAnd=keep.melAnd; Object.assign(S,keep.S); PLAN=null; guitarPlan.cache=null; }
+  renderBreak();
+}
+function baClick(e){
+  const t=e.target.closest('[data-ba]'); if(!t) return; const w=t.dataset.ba, li=t.closest('li'), x=li&&$('#breakaway')._plan.find(p=>p.i===+li.dataset.i);
+  if(w==='stop'){ baToggle(); return; }
+  if(w==='hear'){ baHear(); return; }
+  if(w==='yours'){ stopAll(); playChart(); renderBreak(); return; }
+  if(!x) return; const L=barLen(), b0=x.i*L;
+  if(w==='go'){ const i=chordIdxAt(b0); formInfo().forEach(s=>{ if(s.folded&&b0>=s.b0&&b0<s.b1) unfolded.add(s.id); }); if(i>=0) sel=chords[i].id; renderAll(); $(`.slot[data-id="${sel}"]`)?.scrollIntoView({block:'center',behavior:'smooth'}); return; }
+  if(w==='hearc'){ audition(contextSeq(x.chord.idx,[x.chord.c])); return; }
+  if(w==='chord'){ replaceAt(x.chord.idx,[x.chord.c]); return; }
+  if(w==='flip'){ const f=baFlipped(x.i); if(f) baPutBar(x.i,f.mel,f.and); return; }
+  if(w==='late'){ const turn=a=>{ const s=Array.from({length:L},(_,k)=>a[b0+k]??null); return [null,...s.slice(0,L-1)]; }; baPutBar(x.i,turn(melody),turn(melAnd)); }
 }
 /* ============ melody lane ============ */
 /* One cell per beat under the chords. A note is coloured by what it is against the chord above it: a chord tone (solid),
@@ -4214,7 +4319,7 @@ function renderFinder(){
   h+=`</div></div>`;
   el.innerHTML=h; el._res=res;
 }
-function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); renderTension(); if(melSel){ const tot=chords.reduce((a,c)=>a+c.beats,0); if(!S.showMel||!tot) melSel=null; else { const b=Math.min(melSel.b,tot-1); melSel={a:Math.min(melSel.a,tot-1),b,h:melSplit(b)?melSel.h||0:0}; } } renderChart(); renderFormBar(); renderArrBar(); renderMelPad(); renderArrWhy(); renderPartWhy(); renderVLX(); renderDetail(); renderSubs(); renderPalette(); renderFinder(); renderDoor(); renderIdeas(); renderNext(); const pt=serialize(); $('#prog').value=pt; $('#prog').rows=Math.min(14,Math.max(3,pt.split('\n').length+1)); renderLive(); resyncPlay(); }
+function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); renderTension(); if(melSel){ const tot=chords.reduce((a,c)=>a+c.beats,0); if(!S.showMel||!tot) melSel=null; else { const b=Math.min(melSel.b,tot-1); melSel={a:Math.min(melSel.a,tot-1),b,h:melSplit(b)?melSel.h||0:0}; } } renderChart(); renderFormBar(); renderBreak(); renderArrBar(); renderMelPad(); renderArrWhy(); renderPartWhy(); renderVLX(); renderDetail(); renderSubs(); renderPalette(); renderFinder(); renderDoor(); renderIdeas(); renderNext(); const pt=serialize(); $('#prog').value=pt; $('#prog').rows=Math.min(14,Math.max(3,pt.split('\n').length+1)); renderLive(); resyncPlay(); }
 
 /* ============ front door ============ */
 /* a fresh visit opens on an example with some colour in it, and the Create panel opens on "I have chords" */
@@ -5660,6 +5765,7 @@ function boot(){
       document.querySelector(`#formBar [data-fk="${k}"]`)?.focus(); return; }
     if(m){ formEdit=null; markSection(m.dataset.fm); return; }
     if(!a) return; const w=a.dataset.fa, k=formEdit?.k, s=k!=null?secs[k]:null;
+    if(w==='breakaway'){ baToggle(); return; }
     if(w==='hidehint'){ try{ localStorage.setItem('changes-formhint-v1','1'); }catch(e){} a.closest('.form-hint').remove(); return; }
     if(w==='mark'){ formEdit=formEdit&&formEdit.mark?null:{mark:true}; renderFormBar(); $('#formBar [data-fn="mark"]')?.focus(); return; }
     if(w==='markname'){ const v=$('#formBar [data-fn="mark"]').value; formEdit=null; markSection(v); return; }
@@ -5899,6 +6005,8 @@ function boot(){
   let rw=0; window.addEventListener('resize',()=>{ const n=barsPerRow(); if(n!==rw){ rw=n; renderChart(); } });
   { let lastW=0, raf=0; new ResizeObserver(()=>{ cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{ const w=$('.chart-card').clientWidth; if(w&&w!==lastW){ lastW=w; renderTension(); renderVLX(); if(barsPerRow()!==rowsPer) renderChart(); else markNarrow(); } }); }).observe($('.chart-card')); }
   /* if the saved session can't be shown, start fresh rather than leave the app broken; the old save is kept aside */
+  baLoad();
+  $('#breakaway').addEventListener('click',baClick);
   try{ renderAll(); }
   catch(err){ try{ const old=localStorage.getItem('changes-v1'); if(old) localStorage.setItem('changes-v1-unreadable',old); }catch(e){}
     Object.assign(S,JSON.parse(JSON.stringify(S_DEFAULT))); setTuning(S.tuning); chords=parseProg(EXAMPLE).chords; sel=chords[0].id; hist=[]; renderAll(); save();
