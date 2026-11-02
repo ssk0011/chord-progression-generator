@@ -2112,6 +2112,33 @@ async function timelineSuite() {
   check('timeline: Harmonize still gives whole-beat chords', await page.evaluate(() => { melSel = { a: 0, b: 7, h: 0 }; melHarmonize(); melSel = null; return MEL.results.length > 0 && MEL.results.every(r => r.list.every(c => Number.isInteger(c.beats))); }));
   await load('Am:4/3 F:8/3 | C');
   check('timeline: notation rounds triplet chords to 16ths', await page.evaluate(() => { const x = buildMusicXML(); return [...x.matchAll(/<duration>([^<]*)<\/duration>/g)].every(m => /^\d+$/.test(m[1])) && (x.split('<measure ')[1].match(/<harmony/g) || []).length === 2; }));
+  // review fixes
+  const sbx = x => Math.round(x * 12) / 12;
+  const DRIFT = 'C:1/3 D:1/3 E:1/3 F:3 | C:1/6 C:1/6 C:1/6 C:1/6 C:1/6 C:1/6 G:3 | F | G';
+  await load(DRIFT);
+  check('timeline: replacing bars never leaves a zero-length chord', await page.evaluate(() => { replaceBeats(8, 12, [{ root: 5, q: '', bass: null, beats: 4 }]); return chords.every(c => cTicks(c) >= 1) && chartTicks() === 16 * 12; }));
+  check('timeline: a length under one tick is invalid', await page.evaluate(() => !beatsOk(1e-15)));
+  await load('C:1.5 G:1.5 Am:1 | F:1.5 Dm:2.5 | G');
+  check('timeline: arrangements voice a chord that starts off the beat', await page.evaluate(() => { tune = [{ t: 0, d: 48, m: 64 }, { t: 48, d: 48, m: 65 }]; S.showMel = true; commit(); const ev = arrEvents(); return ev.some(e => e.b === 1.5 && e.ci === 1) && ev.some(e => e.b === 5.5 && e.ci === 4); }));
+  check('timeline: the made-up top line follows off-beat chords', await page.evaluate(() => { tune = []; commit(); return JSON.stringify(autoTopTune().map(n => n.t)) === JSON.stringify(startTicks()); }));
+  check('timeline: a tap on a chord edge leaves its length alone', await page.evaluate(() => { S.melGrid = 'beat'; const a = resizeBeats(2.5, 0, 0); S.melGrid = '2'; const b = resizeBeats(4 / 3, .05, 0); return a === 2.5 && b === 4 / 3; }));
+  check('timeline: a resize snaps the chord’s end to the grid', await page.evaluate(() => { S.melGrid = '2'; return resizeBeats(1, .6, 1 / 3); }) === sbx(5 / 3));
+  await load('C:2.5 G:1.5 | F');
+  check('timeline: swapping in two chords keeps the chart length', await page.evaluate(() => { replaceAt(0, [{ root: 2, q: 'm7', bass: null }, { root: 7, q: '7', bass: null }]); return chartTicks() === 96 && cTicks(chords[0]) + cTicks(chords[1]) === 30; }));
+  await load('C:1.5 G:2.5 | Am:4/3 F:8/3 | C:1/3 D:1/3 E:1/3 F:3 | G');
+  check('timeline: changing to 3/4 keeps every bar line', await page.evaluate(() => { const o = barLen(); S.meter = '3/4'; rebar(o, 3); commit(); const st = new Set(startTicks()); for (let t = 0; t < chartTicks(); t += 36) if (!st.has(t)) return false; return chartTicks() === 4 * 36; }), await page.evaluate(() => serialize()));
+  await load('C:1.5 G:2.5');
+  check('timeline: changing to 6/8 keeps off-beat proportions', await page.evaluate(() => { const o = barLen(); S.meter = '6/8'; rebar(o, 6); commit(); return chords.map(cTicks).join(); }) === '27,45');
+  await load('C:1.5 D:4/3 E:5/12 F:3/4 | G');
+  check('timeline: a bar-starting chord after odd lengths can change key', await page.evaluate(() => { sel = chords[4].id; renderAll(); return !!document.querySelector('#detail .keychg'); }));
+  check('timeline: the picker says the right bar', await page.evaluate(() => { openPicker(chords[4].id); return /bar 2/.test(document.querySelector('.cp-head .hint').textContent); }));
+  await load('C:1/3 D:1/3 E:1/3 F:3 | C:1/6 C:1/6 C:1/6 C:1/6 C:1/6 C:1/6 G:7/3');
+  check('timeline: no long decimals on screen', await page.evaluate(() => { sel = chords[0].id; renderAll(); const t = ['#rows', '#keytag', '#detail'].map(q => document.querySelector(q).textContent).join(' ') + [...document.querySelectorAll('#rows [aria-label], #detail [aria-label], #detail [title]')].map(e => e.getAttribute('aria-label') + e.title).join(' ') + document.querySelector('#detail input.beats').value; return !/\d\.\d{4,}/.test(t); }));
+  check('timeline: Lasts describes an odd length in beats', await page.evaluate(() => /1\/3 of 4 beats/.test(document.querySelector('#detail .dur').textContent)), await page.evaluate(() => document.querySelector('#detail .dur').textContent));
+  { const { ctx: c2, page: p2 } = await openPage({ viewport: { width: 390, height: 844 } }); await p2.goto(URL_);
+    await p2.evaluate(() => { S.showMel = false; chords = parseProg('C:1/3 D:1/3 E:1/3 F:3 | G').chords; commit(); });
+    check('timeline: tiny chords on a phone have no resize handle in the way', await p2.evaluate(() => { const d = document.querySelectorAll('#rows .slot')[1], r = d.getBoundingClientRect(); return r.width >= 32 || document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2).closest('.slot') === d && !document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2).closest('.rz'); }));
+    await c2.close(); }
   check('timeline: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
