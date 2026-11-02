@@ -2064,6 +2064,34 @@ async function gridSuite() {
   check('grid: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }
+async function timelineSuite() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(URL_);
+  const load = txt => page.evaluate(x => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = false; S.melGrid = 'beat'; S.foldForm = false; chords = parseProg(x).chords; tune = []; sel = chords[0]?.id; commit(); return chords.map(c => Math.round(c.beats * 12)); }, txt);
+  check('timeline: half-beat chords parse', JSON.stringify(await load('C:1.5 G:2.5')) === '[18,30]');
+  check('timeline: third-beat chords parse and add up', JSON.stringify(await load('C:1/3 D:1/3 E:1/3 F:3')) === '[4,4,4,36]' && await page.evaluate(() => JSON.stringify(startTicks())) === '[0,4,8,12]');
+  await load('C:1.5 G:2.5 | Am:4/3 F:8/3');
+  check('timeline: text round-trips', await page.evaluate(() => { const a = chords.map(cTicks).join(), t = serialize(); return parseProg(t).chords.map(cTicks).join() === a && /C:1\.5/.test(t) && /Am:4\/3/.test(t); }), await page.evaluate(() => serialize()));
+  check('timeline: bad lengths are rejected', await page.evaluate(() => [0, 0.1, -1, 300].every(b => sanitizeChords([{ root: 0, q: '', beats: b }]) === null) && sanitizeChords([{ root: 0, q: '', beats: 1.5 }]) !== null));
+  check('timeline: library items accept off-beat lengths', await page.evaluate(() => validItem({ name: 'x', snap: { chords: [{ root: 0, q: '', beats: 4 / 3 }] } })));
+  check('timeline: notes keep a part label', await page.evaluate(() => readTune({ tune: [{ t: 0, d: 12, m: 60, k: 'alto' }, { t: 12, d: 12, m: 62, k: 'Bad Label!' }] }).map(n => n.k ?? '-').join()) === 'alto,-');
+  // positions in ticks
+  await load('C:1.5 G:2.5');
+  check('timeline: two chords meet on an 8th', await page.evaluate(() => { const [a, b] = [...document.querySelectorAll('#rows .slot')].map(e => e.getBoundingClientRect().width); return Math.abs(a / b - 3 / 5) < .04; }));
+  await load('C:3.5 G:4.5');
+  check('timeline: a chord crossing a bar line spans it from its own 8th', await page.evaluate(() => { const g = document.querySelectorAll('#rows .slot')[1]; return g.style.gridColumn === '43 / span 54'; }));
+  await load('C:1.5 G:2.5');
+  check('timeline: playback starts each chord at its tick', await page.evaluate(() => { S.tempo = 60; S.meter = '4/4'; const got = [], keep = playStyled; playStyled = (c, t) => got.push(t); try { ac(); playPass(actx.currentTime + 1, newSession()); } finally { playStyled = keep; stopAll(); } return Math.abs(got[1] - got[0] - 1.5) < 1e-6; }));
+  check('timeline: MIDI places chords exactly', await page.evaluate(() => { const b = buildMidi(false); let i = 14, onAt = []; while (i < b.length) { if (b[i] === 0x4d && b[i + 1] === 0x54 && b[i + 2] === 0x72 && b[i + 3] === 0x6b) { let p = i + 8, t = 0, run = 0; const end = p + ((b[i + 4] << 24) | (b[i + 5] << 16) | (b[i + 6] << 8) | b[i + 7]); while (p < end) { let d = 0, x; do { x = b[p++]; d = (d << 7) | (x & 127); } while (x & 128); t += d; let st = b[p]; if (st & 128) { p++; run = st; } else st = run; if (st === 0xff) { p++; let l = 0; do { x = b[p++]; l = (l << 7) | (x & 127); } while (x & 128); p += l; } else if ((st & 0xf0) === 0xc0 || (st & 0xf0) === 0xd0) p += 1; else { if ((st & 0xf0) === 0x90 && b[p + 1] > 0) onAt.push(t); p += 2; } } i = end; } else i++; } const tpb = PPQ * 4 / den(); return [...new Set(onAt)].includes(Math.round(1.5 * tpb)); }));
+  check('timeline: MusicXML puts both chords in bar 1', await page.evaluate(() => { const x = buildMusicXML(), m1 = x.split('<measure ')[1] || ''; return (m1.match(/<harmony/g) || []).length === 2; }));
+  check('timeline: lead sheet shows both chords in bar 1', await page.evaluate(() => { document.querySelector('#printSheet').innerHTML = leadSheetHTML(); return document.querySelectorAll('#printSheet .bar')[0].querySelectorAll('.cell:not(.cont)').length === 2; }));
+  await page.evaluate(() => { S.foldForm = true; S.linkForm = true; chords = parseProg('[A]\nC:1.5 G:2.5\n[A 2]\nC:1.5 G:2.5').chords; commit(); });
+  check('timeline: off-beat sections repeat and fold', await page.evaluate(() => formInfo()[1].of === 0 && document.querySelectorAll('#rows .fold-row').length === 1));
+  await load('C:1/3 D:1/3 E:1/3 F:3 | G');
+  check('timeline: triplet chords leave the next bar on its line', await page.evaluate(() => chordStarts()[4] === 4 && sectionsOf().length === 1 && serialize().split('|').length === 2));
+  check('timeline: no console errors', !page.errors.length, page.errors.join(' | '));
+  await ctx.close();
+}
 async function searchSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(URL_);
@@ -2387,6 +2415,7 @@ try {
   await breakAway();
   await tuneSuite();
   await gridSuite();
+  await timelineSuite();
   await menus();
   await layout();
   await hardening();
