@@ -139,3 +139,17 @@ Each stage lands on its own branch and passes the full test suite. Stage 1 must 
 - The piano roll's rendering method and default pitch range.
 - The exact Harmonize weighting, as long as long notes and strong beats count for more.
 - Colour values that meet the contrast goal.
+
+## Round 2 decisions (2026-11-02)
+
+From the user's fix file "Things to Fix / Add (Round 2)", with the user's answers:
+
+- **Order:** finish the timeline first (stage 3: chords on any subdivision, plus a part label on every note), then the piano roll through the fix file's stage 3. The fix file's stage 4 (velocity, ties, MIDI import) is deferred.
+- **Ticks:** stay at 12 per counted beat. It covers 8ths, 16ths, 8th triplets and 16th triplets exactly. MIDI export scales to its own resolution.
+- **Parts:** every note carries `k`, its part. The melody is `'mel'`, the default when missing. The melody lane is one voice, so overlapping notes belong to arrangement parts later.
+- **Time signatures:** every metre the app supports keeps working, not just 4/4.
+- **Lane and roll:** both stay. The lane is in Simple view and the roll in the full view.
+- **Touch:** the roll must work on a 375px touch screen with no keyboard: 44px handles, pointer events, a Draw / Select / Erase toolbar, pinch to zoom.
+- **References:** these are reference melodies and charts for comparison. They are kept for the session only and never saved. Fixtures are synthetic, and no real song melodies or lyrics are committed.
+- **Overlap reporting:** plain bar summaries with a heat strip. Wording says "overlap", never "infringement", and states that it isn't legal advice.
+- **Later batches, in order:** chart import and progression comparison, the overlap checker, break-away tools (lenses, sigh finder, reharmonize), then versions, audition and MIDI. Idiom tag naming, export formats and the Carnatic lens get decided when their batch starts.
