@@ -2089,6 +2089,29 @@ async function timelineSuite() {
   check('timeline: off-beat sections repeat and fold', await page.evaluate(() => formInfo()[1].of === 0 && document.querySelectorAll('#rows .fold-row').length === 1));
   await load('C:1/3 D:1/3 E:1/3 F:3 | G');
   check('timeline: triplet chords leave the next bar on its line', await page.evaluate(() => chordStarts()[4] === 4 && sectionsOf().length === 1 && serialize().split('|').length === 2));
+  // editing chords on the grid
+  await load('C | G');
+  check('timeline: resize snaps to the grid', await page.evaluate(() => { S.melGrid = '2'; return resizeBeats(4, -1.4); }) === 2.5);
+  check('timeline: Quarters keeps whole beats', await page.evaluate(() => { S.melGrid = 'beat'; return resizeBeats(4, -1.4); }) === 3);
+  await load('C:3 G:1');
+  check('timeline: Split in two on Quarters keeps whole beats', await page.evaluate(() => { S.melGrid = 'beat'; sel = chords[0].id; renderAll(); document.querySelector('[data-act="split"]').click(); return chords.map(fmt => fmtBeats(fmt.beats)).join(); }) === '2,1,1');
+  await load('C:3 G:1');
+  check('timeline: Split in two on 8ths halves an odd length', await page.evaluate(() => { S.melGrid = '2'; sel = chords[0].id; renderAll(); document.querySelector('[data-act="split"]').click(); return chords.map(c => fmtBeats(c.beats)).join(); }) === '1.5,1.5,1');
+  await load('C | G');
+  await page.evaluate(() => { sel = chords[0].id; renderAll(); });
+  await page.fill('.dur input.beats', '1.5'); await page.press('.dur input.beats', 'Enter');
+  check('timeline: the length field takes decimals', await page.evaluate(() => chords[0].beats) === 1.5);
+  await page.fill('.dur input.beats', '4/3'); await page.press('.dur input.beats', 'Enter');
+  check('timeline: the length field takes fractions', await page.evaluate(() => cTicks(chords[0])) === 16);
+  await page.fill('.dur input.beats', 'abc'); await page.press('.dur input.beats', 'Enter');
+  check('timeline: a bad length is ignored', await page.evaluate(() => cTicks(chords[0])) === 16);
+  await load('C:1.5 G:2.5 Am:4/3 F:8/3');
+  check('timeline: styles don’t sound past a chord', await page.evaluate(() => { const bad = []; for (const inst of ['piano', 'guitar']) { S.instrument = inst; for (const st of Object.keys(inst === 'piano' ? PIANO_STYLES : GUITAR_STYLES)) { if (inst === 'piano') S.pstyle = st; else S.gstyle = st; renderAll(); let at = 0; chords.forEach(c => { const v = playedVoicing(c); if (v) for (const e of styleEvents(v, c.beats, at)) if (e.at < -1e-6 || e.at + (e.dur || 0) > c.beats + 1e-6) bad.push(inst + ':' + st); at += c.beats; }); } } return [...new Set(bad)].join(); }) === '');
+  check('timeline: arrangements build on off-beat chords', await page.evaluate(() => { S.showMel = true; tune = [{ t: 0, d: 18, m: 64 }, { t: 18, d: 30, m: 67 }, { t: 48, d: 16, m: 69 }, { t: 64, d: 32, m: 65 }]; S.instrument = 'piano'; S.pstyle = 'block'; for (const k of Object.keys(ARR_STYLES)) { S.arr = k; S.arrShow = true; commit(); if (!arrange()) return false; } S.arrShow = false; commit(); return true; }));
+  check('timeline: Break away compares off-beat bars', await page.evaluate(() => { BA = null; baToggle(); const r = baReport(); const ok = r.still === r.total && r.total === 2; baToggle(); return ok; }));
+  check('timeline: Harmonize still gives whole-beat chords', await page.evaluate(() => { melSel = { a: 0, b: 7, h: 0 }; melHarmonize(); melSel = null; return MEL.results.length > 0 && MEL.results.every(r => r.list.every(c => Number.isInteger(c.beats))); }));
+  await load('Am:4/3 F:8/3 | C');
+  check('timeline: notation rounds triplet chords to 16ths', await page.evaluate(() => { const x = buildMusicXML(); return [...x.matchAll(/<duration>([^<]*)<\/duration>/g)].every(m => /^\d+$/.test(m[1])) && (x.split('<measure ')[1].match(/<harmony/g) || []).length === 2; }));
   check('timeline: no console errors', !page.errors.length, page.errors.join(' | '));
   await ctx.close();
 }

@@ -124,8 +124,16 @@ D | E | F#m | E</pre>
   <li><b>Grid</b> sets where new notes land: quarters, 8ths, triplets or 16ths (in 6/8 and 7/8, the sizes start from 8ths). Changing it never moves a note, so finer notes stay where they are on a coarser grid.</li>
   <li><b>Zoom</b> shows fewer bars on each row, so you can look closely at a bar. On a narrow screen the chart may fit fewer bars than you chose, and a fine grid can scroll sideways.</li>
   <li><b>On a finer grid</b> each note is a block. Tap a slot, then pick a note. <b>Longer</b> and <b>Shorter</b> change its length, and typing <kbd>-</kbd> extends it. In <b>Type notes</b>, each note takes one slot, a dash extends the note before it, and a dot rests.</li>
-  <li><b>Harmonize</b> still reads the tune in whole and half beats for now, so notes on finer positions count at the nearest half beat. Chords still start on whole beats too. The notation (MusicXML) download keeps 8ths and longer for now, so finer notes are left out of it.</li>
+  <li><b>Harmonize</b> still reads the tune in whole and half beats for now, so notes on finer positions count at the nearest half beat.  The notation (MusicXML) download keeps 8ths and longer for now, so finer notes are left out of it.</li>
 </ul>
+<p><b>Chords off the beat.</b> A chord can start or end on any grid slot, for a pushed or anticipated change:</p>
+<ul>
+  <li>On a finer grid, drag a chord's right edge: it moves by whole slots (on Quarters it moves by whole beats, as before). <b>−</b> and <b>+</b> next to <b>Lasts</b> also step by one slot.</li>
+  <li>Type a length into <b>Lasts</b>: <code>1.5</code>, <code>0.75</code> or a fraction like <code>4/3</code> for triplets.</li>
+  <li>In the chart text, write it after a colon: <code>C:1.5 G:2.5</code> or <code>Am:4/3</code>.</li>
+  <li><b>Split in two</b> splits at the slot nearest the middle on a finer grid, and keeps whole beats on Quarters.</li>
+</ul>
+<p>Playing styles are written in whole beats, so on a chord that ends off the beat, anything past its end is cut short. The notation download rounds chords in triplets to the nearest 16th.</p>
 <p><b>Put in melody lane</b>, in the Harmonize panel, starts at the bar you've selected and changes only the bars it covers. The panel tells you which bars before anything is written, and whether notes will be replaced or won't fit.</p>
 
 <h2 id="breakaway">Break away from another song</h2>
