@@ -874,7 +874,8 @@ select.btn{border-radius:var(--r-pill)}
 @container (max-width:118px){ .slot .cb{display:none} }
 /* melody lane: a row of beat cells under the chords, in the same columns; bar lines run down through it */
 .row.has-mel .bar{grid-row:1 / span 2}
-.cgrid{display:grid;z-index:1;min-width:0}
+.cgrid{display:grid;z-index:1;min-width:0;pointer-events:none}
+.cgrid>*{pointer-events:auto}
 /* a chord too narrow to grab by its edge is tapped to pick it; its length is set in Lasts */
 .slot.tiny .rz{display:none}
 .slot.tiny .cn{overflow:hidden}
