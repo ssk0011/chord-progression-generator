@@ -31,6 +31,17 @@
 <p>A second list, alongside the first, holds the note on the “and” of each beat (the second half of a split beat), or nothing. Everything that works by beat (the colours, harmonizing, the arrangers’ moments, the piano parts’ gaps) reads the note on the beat, so an “and” acts as a passing note. Playback, the tune’s own line in an arrangement, MIDI and MusicXML (which counts in half beats) play and write it as written. Typed bars are fitted by ranking the beats: strongest first (the downbeat, then the meter’s accents in order, then the rest) to place fewer notes than beats; weakest first, from the end of the bar back, to choose which beats to split when there are more. Notes typed without octaves go in the octave nearest the note before, between E4 and G5.</p>
 <p>The melody is a list with one entry per beat of the chart, counted from the start: a MIDI note number starts a note, a hold marker continues the note before, and an empty entry is a rest. It is kept apart from the chords, so editing chords never rewrites the tune. Each note is compared with the chord sounding on its beat, in the key in force there: a note in the chord’s triad or 7th (or its bass) is a chord tone; one of its upper extensions or another note of the key is a colour note; anything else is a clash if it falls on the downbeat or an accented beat of the meter, and a passing note otherwise. A newly entered note goes in the octave closest to the note before it, kept between G3 and C6. Harmonizing a selection runs the same harmonizer as the text box, on whole bars of the lane, and the result replaces exactly those bars, trimming any chord that runs into or out of them.</p>
 
+<h2 id="melodypaths">How melody paths are measured</h2>
+<p>Break away compares your tune with the original bar by bar, in five layers, and averages each. Every layer scores 0 to 1, and the panel shows it as a word: very close (.85 up), close (.6), some way off (.35) or far.</p>
+<ul>
+  <li><b>Rhythm</b>: how many of the bar’s note starts are shared.</li>
+  <li><b>Shape</b>: how often the tune goes up, down or stays, in the same order.</li>
+  <li><b>Exact steps</b>: how many of the distances between notes match.</li>
+  <li><b>Tension against the chords</b>: how far each beat’s tension differs from the original’s.</li>
+  <li><b>Chord changes</b>: how many chord changes and chord numerals are shared.</li>
+</ul>
+<p>A layer is named as a giveaway when it is .8 or more and well above the rest. Paths are built from the original’s style, which is its note lengths, off-beat share, range, leap size, scale and phrase lengths. A path is listed only if its result fits that style and moves a layer it changes further away, so a tune of only quarter notes gets few rhythm paths.</p>
+
 <h2 id="generate">How progressions are generated</h2>
 <p>Moods and genres each hold short progression <b>templates</b> written as Roman numerals, each tagged with the mode it lives in (for example Blues has <code>I7 IV7 I7 V7</code> in Mixolydian). Generate then works in stages:</p>
 <ol>
