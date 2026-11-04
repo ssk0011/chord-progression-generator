@@ -2333,13 +2333,26 @@ async function pathsSuite() {
     const items = mpPathsFor(t0, t1); return { n: items.length, ok: items.every(x => key(x.notes) === key(tune)), ids: items.map(x => x.id + x.v) }; }, [t0, t1]); };
   const outs = [await outside('steps', 48, 96), await outside('sync', 48, 96), await outside('waltz', 72, 108), await outside('repeat', 48, 96), await outside('sync', 0, 192)];
   check('paths: every path leaves notes outside the stretch alone', outs.every(o => o.ok) && outs.some(o => o.n > 0), JSON.stringify(outs));
+  /* a half note at t=36 crosses from bar 1 into bar 2: on a one-bar stretch it is fixed, so no variant of any path (passing or not) may move, cut, drop or re-attack it; over bars 1-2 it is inside and may move */
+  const crossT = [...q([60, 62, 64]), { t: 36, d: 24, m: 65 }, ...q([67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60], 60)];
+  const fixedEdge = await page.evaluate(t => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('C | G | Am | F').chords; tune = t; S.showMel = true; S.simple = false; commit(); BA = null; baToggle();
+    const out = [], src = mpSrc(); [[0, 48], [48, 96], [0, 96]].forEach(([t0, t1]) => { const ctx = { tune, t0, t1, L: 4, style: mpStyle(src), k: keyAt(0) }, key = l => JSON.stringify(l.filter(n => n.t < t0 || n.t >= t1).map(({ t, d, m }) => [t, d, m]));
+      MP_PATHS.forEach(p => { for (let v = 0; v < p.variants(ctx); v++) { const r = p.run(ctx, v); if (r) out.push({ at: t0 + '-' + t1, id: p.id + v, ok: key(r.notes) === key(tune) && (t1 === 96 && t0 === 0 || r.notes.some(n => n.t === 36 && n.d === 24 && n.m === 65)), words: r.words }); } }); });
+    return out; }, crossT);
+  check('paths: a note crossing the stretch edge is never moved or re-attacked', fixedEdge.length > 0 && fixedEdge.every(x => x.ok) && fixedEdge.every(x => !/drop/.test(x.words) || x.id.startsWith('shift')), JSON.stringify(fixedEdge.filter(x => !x.ok).concat(fixedEdge.slice(0, 3))));
   await mpLoad(page, 'steps');
   const lat = await page.evaluate(() => { BA = null; baToggle(); const keep = tune, later = baLater(0); tuneClear(0, 48); tuneAdd(0, later); const want = tune; tune = keep;
     const got = MP_PATHS.find(p => p.id === 'shift').run({ tune, t0: 0, t1: 48, L: 4, style: mpStyle(mpChart()), k: keyAt(0) }, 2);
     return [JSON.stringify(got && got.notes) === JSON.stringify(want), tune === keep, got && got.words]; });
   check('paths: shift a beat later on one bar equals Start a beat later', lat[0] && lat[1] && /Bar 1/.test(lat[2]), JSON.stringify(lat));
   const st8 = await page.evaluate(() => [mpPathsFor(48, 96), mpPathsFor(0, 192), mpPathsFor(0, 48)].flat().map(x => [x.id, x.notes.filter(n => n.d !== 12).length]));
-  check('paths: steps never gets 8ths', st8.every(([, k]) => k === 0), JSON.stringify(st8));
+  check('paths: steps never gets 8ths', st8.length > 0 && st8.every(([, k]) => k === 0), JSON.stringify(st8));
+  /* every item for every fixture, bar by bar and whole, is one voice: sorted, no overlaps, no empty notes */
+  const voice = [];
+  for (const name of Object.keys(MP_FIX)) { await mpLoad(page, name); voice.push(...await page.evaluate(() => { BA = null; baToggle(); const BT = barLen() * TICKS, n = Math.ceil(chartTicks() / BT), out = [];
+    for (let i = 0; i <= n; i++) { const [t0, t1] = i < n ? [i * BT, (i + 1) * BT] : [0, n * BT]; mpPathsFor(t0, t1).forEach(x => out.push({ at: t0 + '-' + t1, id: x.id + x.v, ok: x.notes.every((a, k, l) => a.d > 0 && (!l[k + 1] || a.t + a.d <= l[k + 1].t)) })); }
+    return out.map(x => ({ ...x, f: S.meter })); })); }
+  check('paths: every item is one voice', voice.length > 0 && voice.every(x => x.ok), JSON.stringify(voice.filter(x => !x.ok)) + ' of ' + voice.length);
   /* shift on steps moves notes across bar lines, so its shape bar by bar changes; waltz bar 3 is a shift that keeps every bar's shape */
   await mpLoad(page, 'waltz');
   const sh3 = await page.evaluate(() => { BA = null; baToggle(); const x = mpPathsFor(72, 108).find(p => p.id === 'shift'); return x && { v: x.v, of: x.of, layers: x.close.layers, words: x.words }; });
