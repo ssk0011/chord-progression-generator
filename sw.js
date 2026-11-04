@@ -1,6 +1,6 @@
 /* Install and offline only: keeps the app and its help pages on the device. It never sends anything anywhere.
    VERSION is stamped by docs-src/build.py from the files below, so any change to them makes browsers fetch a fresh copy. */
-const VERSION='28c21766745e';
+const VERSION='dba364ee2bae';
 const CACHE='changes-'+VERSION;
 const FILES=['./','index.html','guide.html','how-it-works.html','manifest.webmanifest','icons/icon-192.png','icons/icon-512.png','icons/icon-maskable-512.png'];
 self.addEventListener('install',e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting())); });

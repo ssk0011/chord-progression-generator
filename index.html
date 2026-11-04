@@ -926,6 +926,7 @@ select.btn{border-radius:var(--r-pill)}
 .rn.f-chrom rect{fill:var(--surface);stroke:var(--accent);stroke-dasharray:5 2}.rn.f-chrom text{fill:var(--ink)}
 .rn.f-clash rect{fill:var(--mel-clash);stroke:var(--mel-clash)}.rn.f-clash text{fill:#141414}
 .rn.rsel rect{stroke:var(--ink);stroke-width:2.5}
+.rn.ghost{pointer-events:none}.rn.ghost rect{fill:none;stroke:var(--ink);stroke-width:2;stroke-dasharray:4 3}
 .roll-body .rcur{stroke:var(--accent);stroke-dasharray:2 3}
 .roll-body .rhead{stroke:var(--accent);stroke-width:2}
 .roll-body.m-erase{cursor:crosshair}
@@ -1031,6 +1032,30 @@ select.btn{border-radius:var(--r-pill)}
 .ba-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .ba-list li{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;padding:6px 8px;border-radius:9px;background:var(--surface);font-size:calc(14px*var(--fs,1))}
 .ba-list li>span{flex:1 1 100%}
+.mp-why{font-size:calc(14px*var(--fs,1))}
+.mp-why>summary{cursor:pointer;padding:6px 8px;border-radius:9px;background:var(--surface);line-height:1.4}
+.mp-why>p,.mp-why>ul{margin:6px 8px 0;font-size:calc(13px*var(--fs,1));color:var(--muted)}
+.mp-why>ul{padding-left:18px}
+.mp-close{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border-radius:9px;background:var(--surface)}
+.mp-cap,.mp-give{margin:0;font-size:calc(13px*var(--fs,1))}
+.mp-cap{color:var(--muted)}
+.mp-give{font-weight:600}
+.mp-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;gap:8px;align-items:center;font-size:calc(13px*var(--fs,1))}
+.mp-meter{display:flex;align-items:center;gap:6px;min-width:0}
+.mp-track{flex:1 1 40px;position:relative;height:8px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--sunk);overflow:hidden}
+.mp-fill{position:absolute;inset:0 auto 0 0;background:var(--ink)}
+.mp-meter b{flex:none;width:6.5em;font-size:calc(12px*var(--fs,1));white-space:nowrap}
+.mp-at{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:calc(13px*var(--fs,1))}
+.mp-at select{max-width:100%;min-height:calc(30px*var(--fs,1));border:1px solid var(--line);border-radius:var(--r-xs);background:var(--surface);color:var(--ink);font:500 calc(13px*var(--fs,1)) var(--f-ui)}
+.mp-paths{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.mp-paths>li{display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:9px;background:var(--surface);border:1.5px solid transparent;font-size:calc(14px*var(--fs,1))}
+.mp-paths>li.on{border-color:var(--ink);border-style:dashed}
+.mp-paths p{margin:0}
+.mp-kc{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:calc(13px*var(--fs,1));color:var(--muted)}
+.mp-kc .label{color:var(--ink);font-weight:600}
+.mp-btns{display:flex;flex-wrap:wrap;gap:6px}
+.mp-jrow{display:flex;flex-direction:column;gap:4px;padding-top:4px;border-top:1px solid var(--rule)}
+@media (pointer:coarse){ .mp-paths .btn,.mp-close .btn,.mp-at select{min-height:44px} }
 .bar .ba-tag{position:absolute;top:3px;right:6px;z-index:1;padding:0 5px;border-radius:5px;background:var(--accent-soft);color:var(--ink);font:600 calc(11px*var(--fs,1))/1.4 var(--f-ui);pointer-events:none}
 .fold-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 4px;padding:8px 12px;border:1.5px dashed var(--line);border-radius:12px;font-size:calc(13.5px*var(--fs,1));color:var(--muted)}
 .fold-row.playing{border-color:var(--ink);color:var(--ink);border-style:solid}
@@ -2985,7 +3010,7 @@ let fut=[];
 function pushSnap(snap){ hist.push(snap); if(hist.length>60) hist.shift(); fut=[]; }
 function pushHist(){ pushSnap(snapshot()); }
 function save(){ try{ localStorage.setItem('changes-v1',snapshot()); }catch(e){} }
-function commit(){ syncRepeats(); renderAll(); save(); }
+function commit(){ syncRepeats(); mpFresh(); renderAll(); save(); }
 function toast(msg,action){ const t=$('#toast'); t.textContent=msg;
   if(action){ const b=document.createElement('button'); b.type='button'; b.className='toast-act'; b.textContent=action.label; b.onclick=()=>{ t.hidden=true; action.fn(); }; t.append(b); }
   t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true,action?6000:Math.max(1600,msg.length*45)); }
@@ -3287,6 +3312,7 @@ function formInfo(){
 /* linked repeats: after an edit, if exactly one copy of a group of matching sections changed and the others did not, the
    others take the change. Only when the section keeps its length, or there is no tune, so the melody never shifts. */
 let syncedTop=null;
+const plural=n=>/(s|x|z|ch|sh)$/i.test(n)?n+'es':n+'s';
 function syncRepeats(){
   const top=hist[hist.length-1]; if(!S.linkForm||!top||top===syncedTop) return; syncedTop=top;
   let prev; try{ prev=JSON.parse(top).chords; }catch(e){ return; } if(!Array.isArray(prev)) return;
@@ -3304,7 +3330,6 @@ function syncRepeats(){
       chords.splice(t.i0,t.i1-t.i0,...copy); });
     done={name:src.name,n:ks.length-1};
   }
-  const plural=n=>/(s|x|z|ch|sh)$/i.test(n)?n+'es':n+'s';
   if(done) setTimeout(()=>toast(`Also changed the other ${done.n>1?done.n+' '+plural(done.name):done.name} (Undo reverts all)`),0);
 }
 /* a copy of section k, after itself or at the end of the chart, with its stretch of the tune */
@@ -3437,7 +3462,7 @@ function renderBreak(){
   const head=!r.total?'Nothing to compare yet':!r.still?`None of your ${r.total} bars still match the original`:`${r.still} of ${r.total} bar${r.total>1?'s':''} still follow the original`;
   el.innerHTML=`<div class="ba-head"><b>${head}</b><button type="button" class="btn small" data-ba="hear" aria-pressed="${baHearing}">${baHearing?'Stop the original':'Hear the original'}</button><button type="button" class="btn small" data-ba="yours">Hear yours</button><button type="button" class="btn small" data-ba="stop">Stop comparing</button></div>
     ${r.still?`<p class="ba-sub">Chords match in ${r.c}, notes in ${r.n}.</p>`:''}
-    ${plan.length?`<ul class="ba-list">${plan.map(x=>`<li data-i="${x.i}"><span><button type="button" class="linkbtn" data-ba="go">Bar ${x.i+1}</button>: ${say(x)}.</span>${x.chord?`<button type="button" class="btn small" data-ba="hearc" aria-label="Hear ${name(x.chord)}">${IC.play}</button><button type="button" class="btn small" data-ba="chord">Try ${name(x.chord)}</button>`:''}${x.flip?'<button type="button" class="btn small" data-ba="flip">Flip the tune’s shape</button>':''}${x.late?'<button type="button" class="btn small" data-ba="late" title="Rests on the first beat and moves the notes along; a note on the last beat drops off">Start a beat later</button>':''}</li>`).join('')}</ul>`:''}
+    ${plan.length?`<ul class="ba-list">${plan.map(x=>`<li data-i="${x.i}"><span><button type="button" class="linkbtn" data-ba="go">Bar ${x.i+1}</button>: ${say(x)}.</span>${x.chord?`<button type="button" class="btn small" data-ba="hearc" aria-label="Hear ${name(x.chord)}">${IC.play}</button><button type="button" class="btn small" data-ba="chord">Try ${name(x.chord)}</button>`:''}${x.flip?'<button type="button" class="btn small" data-ba="flip">Flip the tune’s shape</button>':''}${x.late?'<button type="button" class="btn small" data-ba="late" title="Rests on the first beat and moves the notes along; a note on the last beat drops off">Start a beat later</button>':''}</li>`).join('')}</ul>`:''}${S.simple?'':mpHTML(el)}
     <p class="ba-note">This counts matching chords and notes, not how the song sounds, so let your ear decide. It can’t tell you a song is legally safe. The original stays in this browser.</p>`;
   el._plan=plan;
 }
@@ -3450,6 +3475,7 @@ function baHear(){
   renderBreak();
 }
 function baClick(e){
+  const m=e.target.closest('[data-mp],.mp-why>summary'); if(m){ mpClick(m); return; }
   const t=e.target.closest('[data-ba]'); if(!t) return; const w=t.dataset.ba, li=t.closest('li'), x=li&&$('#breakaway')._plan.find(p=>p.i===+li.dataset.i);
   if(w==='stop'){ baToggle(); return; }
   if(w==='hear'){ baHear(); return; }
@@ -3662,6 +3688,102 @@ function mpPathsFor(t0,t1){ if(!BA) return []; const src=mpSrc(), ctx=mpCtx(t0,t
 function mpNext(id,t0,t1,from){ const p=MP_PATHS.find(x=>x.id===id); if(!BA||!p) return null; const src=mpSrc(), ctx=mpCtx(t0,t1,src), base=mpClose(src,mpChart()), of=p.variants(ctx);
   for(let k=1;k<of;k++){ const x=mpTry(p,(from+k)%of,of,ctx,src,base); if(x) return x; }
   return null; }
+/* ---- the grown panel (full view only): why, closeness, paths, the ghost and A/B ---- */
+/* mpAt: the stretch being worked on; mpItem: the path being previewed; rollGhost: its notes, drawn in the roll while rollGhostFor is still the tune and chords */
+let mpAt=null, mpItem=null, rollGhost=null, rollGhostFor='', mpList=null, mpWhyOpen=false;
+const mpNow=()=>JSON.stringify([tune,chords]);
+/* a preview made for an older tune or chart is dropped, so the roll never shows a stale ghost */
+function mpFresh(){ if(rollGhost&&rollGhostFor!==mpNow()){ rollGhost=null; mpItem=null; } return !!rollGhost; }
+function mpGhost(x){ mpItem=x; rollGhost=x?x.notes.filter(n=>n.t<mpAt.t1&&n.t+n.d>mpAt.t0):null; rollGhostFor=x?mpNow():''; }
+/* plays the bars covering [t0,t1) with the chart's chords and the given notes (tuneHear's way, in ticks) */
+function mpHear(notes,t0,t1){
+  const L=barLen(), total=chartTicks()/TICKS, b0=Math.floor(t0/TICKS/L)*L, b1=Math.min(Math.max(total,b0+L),Math.ceil(t1/TICKS/L)*L), unit=60/S.tempo*(4/den());
+  stopAll(); const a=ac(), out=newSession(), at=a.currentTime+.05, st=chordStarts();
+  chords.forEach((c,i)=>{ const s=Math.max(st[i],b0), e=Math.min(st[i]+c.beats,b1); if(e>s&&real(c)) strum(c,at+(s-b0)*unit,(e-s)*unit,out,playedVoicing(c)); });
+  notes.forEach(n=>{ const s=Math.max(n.t/TICKS,b0), e=Math.min((n.t+n.d)/TICKS,b1); if(e>s+1e-9) tone(n.m,at+(s-b0)*unit,(e-s)*unit*.94,.2,out); });
+}
+/* with Link repeats on, a new tune is copied into the other copies of a named section it changed (same chords, and the same tune
+   there before), when exactly one copy changed: syncRepeats' rule, for the tune */
+function mpLinkTune(notes){ const secs=sectionsOf().filter(s=>s.name); if(!S.linkForm||secs.length<2) return notes; const keep=tune;
+  try{ const was=secs.map(s=>melSlice(s.b0,s.b1)); tune=notes; const now=secs.map(s=>melSlice(s.b0,s.b1)), groups={};
+    secs.forEach((s,k)=>{ const g=s.base+'\u0000'+s.sig+'\u0000'+was[k]; (groups[g]=groups[g]||[]).push(k); });
+    for(const ks of Object.values(groups)){ const ch=ks.filter(k=>now[k]!==was[k]); if(ks.length<2||ch.length!==1) continue; const s=secs[ch[0]], part=tuneSlice(s.b0*TICKS,s.b1*TICKS);
+      ks.filter(k=>k!==ch[0]).forEach(k=>{ const t=secs[k]; tuneClear(t.b0*TICKS,t.b1*TICKS); tuneAdd(t.b0*TICKS,part); }); }
+    return tune; } finally{ tune=keep; } }
+/* the named sections taking notes would change, and their name when they share one */
+function mpLinkInfo(notes){ const after=mpLinkTune(notes), keep=tune, secs=sectionsOf().filter(s=>s.name); let ch;
+  try{ const was=secs.map(s=>melSlice(s.b0,s.b1)); tune=after; ch=secs.filter((s,k)=>melSlice(s.b0,s.b1)!==was[k]); } finally{ tune=keep; }
+  return {n:ch.length,name:ch.length&&ch.every(s=>s.base===ch[0].base)?baseName(ch[0].name).replace(/^./,c=>c.toUpperCase()):''}; }
+const mpLinked=notes=>mpLinkInfo(notes).n;
+/* "Same note, new job": the stretch's longest repeated or held note, and up to 3 single chords from the swap ideas (inside Chords
+   allowed) that contain it and give it a different amount of tension; the chart only changes if the person picks one */
+const mpOrd=r=>{ if(r==='R') return 'root'; if(r==='bass') return 'bass note'; const d=r.replace(/[^0-9]/g,''); return r+(/1[123]$/.test(d)?'th':{1:'st',2:'nd',3:'rd'}[d.slice(-1)]||'th'); };
+function mpNewJob(t0,t1){ const own=tune.filter(n=>n.t>=t0&&n.t<t1); if(!own.length) return [];
+  let best=null; for(let i=0;i<own.length;){ let j=i, d=own[i].d; while(own[j+1]&&own[j+1].m===own[i].m&&own[j+1].t===own[j].t+own[j].d){ j++; d+=own[j].d; } if(!best||d>best.d) best={n:own[i],d}; i=j+1; }
+  const n=best.n, idx=chordIdxAt(Math.floor(n.t/TICKS)); if(idx<0||!real(chords[idx])||chords[idx].lock) return [];
+  const pc=mod(n.m), was=mpTen(n).v, k=keyAt(idx), out=[], {groups}=inKey(k,()=>suggestions(idx));
+  for(const g of groups) for(const it of g.items){ if(out.length>=3) break; if(it.chords.length!==1||it.outside) continue; const c=it.chords[0]; if(!pcsOf(c).includes(pc)) continue;
+    const list=chords.map((x,i)=>i===idx?{...x,root:c.root,q:c.q,bass:c.bass??null}:x), v=mpAs({...mpChart(),chords:list},()=>mpTen(n).v); if(v===was) continue;
+    out.push({idx,c,why:inKey(k,()=>`${prettyNote(spell(pc))} becomes the ${mpOrd(roleOf(c,pc))} of ${chordName(c)}: same note, ${v>was?'more lift':'more settled'}.`)}); }
+  return out; }
+/* the stretches to work on: each phrase, then the whole tune */
+function mpStretches(){ const L=barLen(), BT=L*TICKS, end=Math.max(chartTicks(),...tune.map(n=>n.t+n.d)), out=[];
+  mpPhrases(tune,L).forEach(p=>{ const x=Math.floor(p.t0/BT)+1, y=Math.floor((p.t1-1)/BT)+1; let label=x===y?`Bar ${x}`:`Bars ${x}–${y}`;
+    if(out.some(o=>o.label===label)) label+=`, from beat ${+(p.t0%BT/TICKS+1).toFixed(2)}`; out.push({t0:p.t0,t1:p.t1,label}); });
+  out.push({t0:0,t1:Math.max(1,Math.ceil(end/BT))*BT,label:'Whole tune'}); return out; }
+/* the stretch in hand: the one picked if it is still there, else the giveaway run's phrase, else phrase 1 */
+function mpStretch(list,base){ let at=mpAt&&list.find(s=>s.t0===mpAt.t0&&s.t1===mpAt.t1);
+  if(!at){ const g=base.giveaway, BT=barLen()*TICKS; at=g&&list.slice(0,-1).find(s=>s.t1>g.b0*BT&&s.t0<(g.b1+1)*BT)||list[0]; mpAt={t0:at.t0,t1:at.t1}; }
+  return at; }
+/* the three plain sentences: the shape, the rhythm and the note with the most tension */
+function mpWhy(at){ const L=barLen(), BT=L*TICKS, ns=tune.filter(n=>n.t>=at.t0&&n.t<at.t1), first=ns[0], last=ns.at(-1); let pk=first; ns.forEach(n=>{ if(n.m>pk.m) pk=n; });
+  const shape=ns.every(n=>n.m===first.m)?`The shape stays on ${mpNm(first.m)}.`:pk===first?`The shape starts on its high point, ${mpNm(pk.m)}, and comes down to ${mpNm(last.m)}.`
+    :pk===last||pk.m===last.m?`The shape climbs from ${mpNm(first.m)} to its high point, ${mpNm(pk.m)}.`:`The shape climbs from ${mpNm(first.m)} to a high point on ${mpNm(pk.m)}, then comes down to ${mpNm(last.m)}.`;
+  const r=mpRhythm(ns,L), ph=r.phrases[0];
+  const rhythm=`The rhythm starts ${ph.start==='on'?'on the beat':ph.start==='before'?'just before the beat':'after the beat'}, with ${r.sync<.1?'almost no off-beat notes':r.sync<.35?'some off-beat notes':'lots of off-beat notes'}.`;
+  const tn=mpTension(mpChart()), ix=tune.map((n,i)=>i).filter(i=>tune[i].t>=at.t0&&tune[i].t<at.t1); let hi=ix[0]; ix.forEach(i=>{ if(tn[i].v>tn[hi].v) hi=i; });
+  const h=tune[hi], b=h.t/TICKS, tension=tn[hi].v<=1?'Every note is a chord note, so the tension stays low.':`The most tension is on ${mpNm(h.m)} in bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${tn[hi].fit==='clash'?'a clash':'a '+NOTE_FIT[tn[hi].fit]}.`;
+  const pulls=mpPull(mpChart()).filter(p=>tune[p.i].t>=at.t0&&tune[p.i].t<at.t1).map(p=>`${mpNm(tune[p.i].m)} (degree ${p.deg}) leans toward degree ${p.toward}${p.resolved?', and gets there':', and doesn’t get there'}.`);
+  return {say:[shape,rhythm,tension],pulls}; }
+/* items for the stretch, worked out once per tune, chart and stretch; Toss and Another one change this list until the tune changes */
+function mpItemsFor(at){ const key=JSON.stringify([tune,chords,MP_KEYS.map(k=>S[k]),S.linkForm,at.t0,at.t1]); if(mpList&&mpList.key===key&&mpList.ba===BA) return mpList;
+  const dress=x=>x&&{...x,nx:mpNext(x.id,at.t0,at.t1,x.v),linked:mpLinkInfo(x.notes)};
+  mpList={key,ba:BA,dress,items:mpPathsFor(at.t0,at.t1).map(dress),jobs:mpNewJob(at.t0,at.t1),why:mpWhy(at)}; if(mpItem&&!mpList.items.some(x=>x.id===mpItem.id&&x.v===mpItem.v)) mpGhost(null); return mpList; }
+function mpHTML(el){
+  if(!tune.length){ el._mp=null; return '<p class="ba-sub mp-empty">Add a tune to see its shape and paths.</p>'; }
+  const src=mpSrc(), base=mpClose(src,mpChart()), list=mpStretches(), at=mpStretch(list,base);
+  if(!tune.some(n=>n.t>=at.t0&&n.t<at.t1)){ el._mp=null; return '<p class="ba-sub mp-empty">Add a tune to see its shape and paths.</p>'; }
+  const P=mpItemsFor(at); mpFresh(); el._mp={list,at,...P};
+  const cl=mpItem?mpClose(src,{...mpChart(),tune:mpItem.notes}):base, kept=BA.kept||[], g=cl.giveaway, lc=k=>MP_LABEL[k].toLowerCase();
+  const rows=MP_LAYERS.filter(k=>cl.layers[k]!=null).map(k=>{ const v=cl.layers[k], p=Math.round(v*100), w=mpWord(v);
+    return `<div class="mp-row"><span class="mp-lab" id="mpl-${k}">${MP_LABEL[k]}</span><span class="mp-meter" role="meter" aria-labelledby="mpl-${k}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}" aria-valuetext="${w}"><span class="mp-track" aria-hidden="true"><span class="mp-fill" style="width:${p}%"></span></span><b>${w}</b></span><button type="button" class="btn small" data-mp="keep" data-k="${k}" aria-pressed="${kept.includes(k)}" aria-label="Keep the ${lc(k)} close on purpose" title="Keeping it on purpose: it won’t be named as still close">Keep</button></div>`; }).join('');
+  const give=g?`<p class="mp-give">The ${lc(g.layer)} ${g.layer==='harmony'?'are':'is'} still ${mpWord(cl.layers[g.layer])} to the original in ${g.b0===g.b1?`bar ${g.b0+1}`:`bars ${g.b0+1}–${g.b1+1}`}.</p>`:'';
+  const item=(x,i)=>{ const on=mpItem===x, ln=x.linked, take=ln.n>1?ln.name?`Take (changes all ${ln.n} ${plural(ln.name)})`:`Take (changes ${ln.n} sections)`:'Take';
+    return `<li data-mi="${i}"${on?' class="on"':''}><b>${esc(x.name)}</b><span class="mp-kc"><span><span class="label">Keeps:</span> ${x.keeps.map(lc).join(', ')}</span><span><span class="label">Changes:</span> ${x.changes.map(lc).join(', ')}</span></span><p>${esc(x.words)}</p>
+      <span class="mp-btns"><button type="button" class="btn small" data-mp="show" aria-pressed="${on}">Show</button><button type="button" class="btn small" data-mp="before">Hear before</button><button type="button" class="btn small" data-mp="after">Hear after</button><button type="button" class="btn small" data-mp="take">${esc(take)}</button>${x.nx?'<button type="button" class="btn small" data-mp="next">Another one</button>':''}<button type="button" class="btn small" data-mp="toss">Toss</button></span></li>`; };
+  const job=P.jobs.length?`<li class="mp-job"><b>Same note, new job</b><p>The note stays. A different chord under it changes what it does.</p>${P.jobs.map((j,k)=>{ const nm=esc(inKey(keyAt(j.idx),()=>chordName(j.c)));
+    return `<div class="mp-jrow" data-jk="${k}"><span>${esc(j.why)}</span><span class="mp-btns"><button type="button" class="btn small" data-mp="hearj" aria-label="Hear ${nm}">Hear</button><button type="button" class="btn small" data-mp="tryj">Try ${nm}</button></span></div>`; }).join('')}</li>`:'';
+  return `<details class="mp-why"${mpWhyOpen?' open':''}><summary>${P.why.say.map(esc).join(' ')}</summary><p>The original’s style: ${esc(mpStyleLine(mpStyle(src)))}.</p>${P.why.pulls.length?`<ul>${P.why.pulls.map(p=>`<li>${esc(p)}</li>`).join('')}</ul>`:'<p>No note here leans hard toward another.</p>'}</details>
+    <div class="mp-close" role="group" aria-label="How close to the original"><p class="mp-cap">${mpItem?`How close it would be with “${esc(mpItem.name)}”`:'How close yours is to the original'}</p>${rows}${give}</div>
+    <label class="mp-at">Work on <select data-mp="at">${list.map((s,i)=>`<option value="${i}"${s===at?' selected':''}>${esc(s.label)}</option>`).join('')}</select></label>
+    ${P.items.length||job?`<ul class="mp-paths">${P.items.map(item).join('')}${job}</ul>`:'<p class="ba-sub">No path fits this stretch in the original’s style. Try another stretch.</p>'}`;
+}
+function mpPick(i){ const s=$('#breakaway')._mp?.list[i]; if(!s) return; mpAt={t0:s.t0,t1:s.t1}; mpGhost(null); renderRoll(); renderBreak(); }
+function mpClick(t){ const P=$('#breakaway')._mp, w=t.dataset.mp;
+  if(!w){ mpWhyOpen=!t.parentElement.open; return; } /* the why's summary: remember it open or closed across redraws */
+  if(!P) return; const at=P.at;
+  if(w==='keep'){ const k=t.dataset.k, kept=BA.kept||[]; BA.kept=kept.includes(k)?kept.filter(x=>x!==k):MP_LAYERS.filter(x=>x===k||kept.includes(x)); baStore(); renderBreak(); return; }
+  const jr=t.closest('[data-jk]'); if(jr){ const j=P.jobs[+jr.dataset.jk]; if(!j) return; if(w==='hearj') audition(contextSeq(j.idx,[j.c])); if(w==='tryj') replaceAt(j.idx,[j.c]); return; }
+  const li=t.closest('[data-mi]'), i=li?+li.dataset.mi:-1, x=P.items[i]; if(!x) return;
+  if(w==='before'){ mpHear(tune,at.t0,at.t1); return; }
+  if(w==='after'){ mpHear(x.notes,at.t0,at.t1); return; }
+  if(w==='take'){ pushHist(); tune=mpLinkTune(x.notes); mpGhost(null); commit(); toast(`${x.name}: done`,{label:'Undo',fn:undoTo(hist[hist.length-1])}); return; }
+  if(w==='toss'){ P.items.splice(i,1); if(mpItem===x) mpGhost(null); renderRoll(); renderBreak(); return; }
+  if(w==='next'){ const y=P.dress(x.nx); P.items[i]=y; if(mpItem===x) mpGhost(y); renderRoll(); renderBreak(); return; }
+  if(w==='show'){ mpGhost(mpItem===x?null:x);
+    if(mpItem&&!rollOn()){ S.showMel=true; S.melView='roll'; renderAll(); save(); toast('Showing the path in the piano roll'); return; }
+    renderRoll(); renderBreak(); }
+}
 /* ============ a tune from the Harmonize box ============ */
 /* it goes in from the bar in hand and replaces only the stretch it covers; the box says which bars before anything is written */
 let laneBar=null, laneTok=''; /* the beat last clicked in the chart, chord or note, until the selection moves on */
@@ -3721,6 +3843,8 @@ function renderRoll(){
     const f=oor?'':noteFit(n.m,ci,b,n.d), name=nm(keyAt(Math.max(ci,0)),n.m), car=ci>=0&&carries(ci,n.m);
     const label=`Bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${name}${oor?' (past the end of the chart)':` (${NOTE_FIT[f]}${car?', carried by this chord':''})`}`;
     body+=`<g class="rn${oor?' oor':' f-'+f}${rollSel.has(n.t)?' rsel':''}" data-ri="${i}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><rect x="${p.x}" y="${p.y}" width="${w}" height="${g.rowH}" rx="3"/><text x="${p.x+3}" y="${p.y+g.rowH/2}">${oor?'':fitLetter[f]}${w>=26?' '+esc(name):''}</text></g>`; });
+  /* a path being previewed: its notes in the stretch as dashed outlines, only while the tune and chords are the ones it was made for */
+  if(mpFresh()) rollGhost.forEach(n=>{ const p=rollXY(n.t,n.m,g); body+=`<g class="rn ghost" role="img" aria-label="Path preview: ${esc(mpItem?.name||'')}"><rect x="${p.x}" y="${p.y}" width="${n.d*g.px}" height="${g.rowH}" rx="3"/></g>`; });
   if(rollCur!=null&&rollCur<=g.ticks) body+=`<line class="rcur" x1="${rollCur*g.px}" x2="${rollCur*g.px}" y1="0" y2="${H}"/>`;
   if(rollBoxR){ const b=rollBoxR; body+=`<rect class="rbox" x="${Math.min(b.x0,b.x1)}" y="${Math.min(b.y0,b.y1)}" width="${Math.abs(b.x1-b.x0)}" height="${Math.abs(b.y1-b.y0)}"/>`; }
   body+=`<line class="rhead" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
@@ -6646,6 +6770,7 @@ function boot(){
   /* if the saved session can't be shown, start fresh rather than leave the app broken; the old save is kept aside */
   baLoad();
   $('#breakaway').addEventListener('click',baClick);
+  $('#breakaway').addEventListener('change',e=>{ if(e.target.dataset.mp==='at') mpPick(+e.target.value); });
   try{ renderAll(); }
   catch(err){ try{ const old=localStorage.getItem('changes-v1'); if(old) localStorage.setItem('changes-v1-unreadable',old); }catch(e){}
     Object.assign(S,JSON.parse(JSON.stringify(S_DEFAULT))); setTuning(S.tuning); chords=parseProg(EXAMPLE).chords; sel=chords[0].id; hist=[]; fut=[]; renderAll(); save();
