@@ -3476,6 +3476,48 @@ function mpRhythm(notes,L){ const BT=L*TICKS, ph=mpPhrases(notes,L);
   return {sync:notes.length?notes.filter(n=>n.t%TICKS!==0).length/notes.length:0, lengths:[...new Set(notes.map(n=>n.d))].sort((a,b)=>a-b),
     phrases:ph.map(p=>{ const r=p.t0%BT, before=r&&BT-r<=TICKS, beats=(p.t1-p.t0)/TICKS; return {start:!r?'on':before?'before':'after', offset:before?BT-r:r, beats, density:p.idx.length/beats}; }),
     strong:notes.map((n,i)=>i).filter(i=>notes[i].t%TICKS===0&&strongBeat(notes[i].t/TICKS))}; }
+/* run fn with another chart in place (chords, tune, tonic, mode, meter, tempo), then put everything back, even if fn throws */
+const MP_KEYS=['tonic','mode','meter','tempo'];
+function mpChart(){ return {chords,tune,S:Object.fromEntries(MP_KEYS.map(k=>[k,S[k]]))}; }
+function mpAs(chart,fn){ const keep=mpChart();
+  try{ chords=chart.chords; tune=chart.tune; Object.assign(S,chart.S); PLAN=null; guitarPlan.cache=null; return fn(); }
+  finally{ chords=keep.chords; tune=keep.tune; Object.assign(S,keep.S); PLAN=null; guitarPlan.cache=null; } }
+/* a note's place on the scale, counting scale steps (so a 5th is 4 steps); notes outside the scale count as the step below */
+function mpPos(m){ const sc=MODES[S.mode].sc, r=mod(m-S.tonic); return Math.floor((m-S.tonic)/12)*sc.length+sc.filter(i=>i<=r).length-1; }
+/* the key in force at a note, and whether the note sits outside that key's scale */
+function mpKeyOf(n){ return keyAt(Math.max(chordIdxAt(Math.floor(n.t/TICKS)),0)); }
+const mpOut=n=>inKey(mpKeyOf(n),()=>!scaleSet().has(mod(n.m)));
+const MP_BANDS=['none','some','heavy'];
+/* style limits read from a melody: meter, how off the beat it sits, lengths, range, widest leap (in scale steps), degrees, chromatic notes, phrase lengths */
+function mpStyle(chart){ return mpAs(chart,()=>{ const L=barLen(), ns=chart.tune, sy=mpRhythm(ns,L).sync;
+  let maxLeap=0; mpPhrases(ns,L).forEach(p=>p.idx.forEach((i,k)=>{ if(k) maxLeap=Math.max(maxLeap,Math.abs(mpPos(ns[i].m)-mpPos(ns[p.idx[k-1]].m))); }));
+  return {meter:S.meter, band:sy<.1?'none':sy<.35?'some':'heavy', lengths:new Set(ns.map(n=>n.d)), lo:ns.length?Math.min(...ns.map(n=>n.m)):0, hi:ns.length?Math.max(...ns.map(n=>n.m)):0, maxLeap,
+    degs:new Set(ns.map(n=>inKey(mpKeyOf(n),()=>degOf(n.m)))), chrom:ns.some(mpOut), phraseBeats:mpPhrases(ns,L).map(p=>(p.t1-p.t0)/TICKS)}; }); }
+/* does a tune stay inside a style's limits (with a little give)? why names the first limit that fails; run it with the tune's own chart in place */
+function mpFits(notes,style,L){ const sy=mpRhythm(notes,L).sync, band=sy<.1?'none':sy<.35?'some':'heavy', fail=why=>({ok:false,why});
+  if(Math.abs(MP_BANDS.indexOf(band)-MP_BANDS.indexOf(style.band))>=2) return fail('it has a very different amount of off-beat notes');
+  if(notes.some(n=>!style.lengths.has(n.d))) return fail('it uses a note length the original doesn’t');
+  if(notes.some(n=>n.m<style.lo-2||n.m>style.hi+2)) return fail('it goes outside the original’s range');
+  let leap=0; mpPhrases(notes,L).forEach(p=>p.idx.forEach((i,k)=>{ if(k) leap=Math.max(leap,Math.abs(mpPos(notes[i].m)-mpPos(notes[p.idx[k-1]].m))); }));
+  if(leap>style.maxLeap+2) return fail('it leaps wider than the original');
+  if(!style.chrom&&notes.some(mpOut)) return fail('it uses notes outside the scale');
+  const pb=style.phraseBeats, bs=mpPhrases(notes,L).map(p=>(p.t1-p.t0)/TICKS);
+  if(pb.length&&bs.some(b=>b<Math.min(...pb)-2||b>Math.max(...pb)+2)) return fail('its phrases are a different length');
+  return {ok:true,why:''}; }
+const MP_LEN={3:'sixteenths',4:'triplet eighths',6:'eighths',8:'triplet quarters',9:'dotted eighths',12:'quarters',18:'dotted quarters',24:'halves',36:'dotted halves',48:'whole notes'}, MP_LEAP=['repeated notes','steps','up to a 3rd','up to a 4th','up to a 5th','up to a 6th','up to a 7th','up to an octave'];
+/* the style as one plain line, shown in the melody's own spelling */
+function mpStyleLine(st){ const ls=[...st.lengths].sort((a,b)=>b-a).map(d=>MP_LEN[d]||`${+(d/TICKS).toFixed(2)}-beat notes`), nm=m=>prettyNote(spell(mod(m)))+(Math.floor(m/12)-1);
+  return [st.meter, st.band==='none'?'almost no off-beat notes':st.band==='some'?'some off-beat notes':'lots of off-beat notes', ls.length>1?ls.slice(0,-1).join(', ')+' and '+ls.at(-1):ls[0]||'no notes',
+    `${nm(st.lo)} to ${nm(st.hi)}`, st.maxLeap<2?'moves '+(MP_LEAP[st.maxLeap]==='steps'?'by step':'on one note'):'leaps '+(MP_LEAP[st.maxLeap]||'wider than an octave'), st.chrom?'uses notes outside the scale':'stays in the scale'].join(' · '); }
+/* tension per note, 0 (home) to 5 (clash), measured against the chord under it: root 0, 3rd or 5th 1, other chord tone or extension 2, passing 3, chromatic 4, clash 5; no chord: 3 in the scale, 4 out */
+function mpTension(chart){ return mpAs(chart,()=>chart.tune.map(n=>{ const b=n.t/TICKS, ci=chordIdxAt(Math.floor(b)), c=chords[ci]; let fit, v;
+  if(ci<0||!real(c)){ const out=mpOut(n); fit=out?'chrom':'pass'; v=out?4:3; }
+  else { fit=noteFit(n.m,ci,b,n.d); const r=roleOf(c,mod(n.m)); v=fit==='tone'?(r==='R'?0:/^[♭♯]?[35]$/.test(r)?1:2):{ext:2,pass:3,chrom:4,clash:5}[fit]; }
+  return {t:n.t,v,fit}; })); }
+/* tendency notes and where they want to go; resolved when one of the next two notes is the target (a raised 4th is read as the flat 5 degree) */
+const MP_PULL={'7':'1','4':'3','2':'1','♭6':'5','♭5':'5'};
+function mpPull(chart){ return mpAs(chart,()=>{ const dg=chart.tune.map(n=>inKey(mpKeyOf(n),()=>degOf(n.m))), out=[];
+  dg.forEach((d,i)=>{ const to=MP_PULL[d]; if(to) out.push({i,deg:d==='♭5'?'♯4':d,toward:to,resolved:dg.slice(i+1,i+3).includes(to)}); }); return out; }); }
 /* ============ a tune from the Harmonize box ============ */
 /* it goes in from the bar in hand and replaces only the stretch it covers; the box says which bars before anything is written */
 let laneBar=null, laneTok=''; /* the beat last clicked in the chart, chord or note, until the selection moves on */

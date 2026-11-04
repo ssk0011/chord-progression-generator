@@ -2274,6 +2274,31 @@ async function pathsSuite() {
   check('paths: sync phrases start after the bar line by 6', ry.phrases.length > 0 && ry.phrases.every(p => p.start === 'after' && p.offset === 6), JSON.stringify(ry.phrases));
   check('paths: lengths are the ones used', JSON.stringify(rs.lengths) === '[12]' && JSON.stringify(ry.lengths) === '[6,12,18]', JSON.stringify([rs.lengths, ry.lengths]));
   check('paths: strong beats are listed', JSON.stringify(rs.strong) === '[0,2,4,6,8,10,12,14]', JSON.stringify(rs.strong));
+  // Task 2: style limits, tension and pull
+  await mpLoad(page, 'steps');
+  const rs2 = await page.evaluate(() => { const snap = () => JSON.stringify([chords, tune, S.tonic, S.meter]); const b = snap(); let caught = false;
+    try { mpAs({ chords: parseProg('Dm | G').chords, tune: [{ t: 0, d: 12, m: 62 }], S: { tonic: 2, mode: 'dorian', meter: '3/4', tempo: 90 } }, () => { throw 1; }); } catch (e) { caught = e === 1; }
+    return [caught, b === snap()]; });
+  check('paths: mpAs restores the chart even when fn throws', rs2[0] && rs2[1], JSON.stringify(rs2));
+  const stl = await page.evaluate(() => { const s = mpStyle(mpChart()); return { meter: s.meter, band: s.band, lengths: [...s.lengths], lo: s.lo, hi: s.hi, maxLeap: s.maxLeap, chrom: s.chrom }; });
+  check('paths: style of steps', stl.band === 'none' && JSON.stringify(stl.lengths) === '[12]' && stl.lo === 60 && stl.hi === 69 && stl.maxLeap === 4 && stl.chrom === false && stl.meter === '4/4', JSON.stringify(stl));
+  const line = await page.evaluate(() => mpStyleLine(mpStyle(mpChart())));
+  check('paths: style line reads plainly', line.includes('almost no off-beat notes') && line.includes('stays in the scale') && line.includes('C4 to A4') && line.includes('quarters'), line);
+  const fits = await page.evaluate(() => { const st = mpStyle(mpChart()), own = mpFits(tune, st, 4);
+    const sixteenths = tune.map(n => ({ ...n, d: 3 })), busy = tune.flatMap(n => [0, 3, 6, 9].map(k => ({ t: n.t + k, d: 3, m: n.m })));
+    return [own, mpFits(sixteenths, st, 4), mpFits(busy, st, 4)]; });
+  check('paths: fits rejects 16ths in a quarter-note tune, accepts the tune itself', fits[0].ok === true && fits[1].ok === false && /length/.test(fits[1].why) && fits[2].ok === false, JSON.stringify(fits));
+  await mpLoad(page, 'repeat');
+  const tn = await page.evaluate(() => mpTension(mpChart())), tv = [0, 8, 16, 24].map(i => tn[i].v);
+  check('paths: repeat tune\'s G is 5th, passing, ninth, then root', JSON.stringify(tv) === '[1,3,2,0]' && tn.length === 28, JSON.stringify(tv));
+  await page.evaluate(() => transpose(7));
+  const tv7 = await page.evaluate(() => mpTension(mpChart()).map(x => x.v));
+  check('paths: tension is the same in any key', JSON.stringify(tv7) === JSON.stringify(tn.map(x => x.v)) && await page.evaluate(() => S.tonic) === 7, JSON.stringify(tv7));
+  await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('C | G | C').chords; tune = [{ t: 0, d: 12, m: 71 }, { t: 12, d: 12, m: 72 }]; commit(); });
+  const pl = await page.evaluate(() => mpPull(mpChart()).map(({ deg, toward, resolved }) => ({ deg, toward, resolved })));
+  check('paths: pull finds B resolving to C', JSON.stringify(pl) === '[{"deg":"7","toward":"1","resolved":true}]', JSON.stringify(pl));
+  const pl2 = await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 71 }, { t: 12, d: 12, m: 67 }, { t: 24, d: 12, m: 64 }]; return mpPull(mpChart()).map(x => x.resolved); });
+  check('paths: pull says when B does not resolve', JSON.stringify(pl2) === '[false]', JSON.stringify(pl2));
   check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
 }
