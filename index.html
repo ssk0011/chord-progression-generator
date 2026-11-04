@@ -3414,10 +3414,12 @@ function baChordIdea(i){
   for(const g of groups) for(const it of g.items){ if(it.chords.length!==1||it.outside) continue; const c=it.chords[0]; if(baChord(c)===was) continue; if(pc!=null&&!pcsOf(c).includes(pc)) continue; return {idx,c}; }
   return null;
 }
+/* a pitch turned upside down around first, moved to the nearest note of the scale sc (the lower on a tie) and kept within 55..84 */
+const baFlip=(first,m,sc)=>{ let x=first-(m-first); for(let k=0;k<6;k++){ if(sc.has(mod(x-k))){ x-=k; break; } if(sc.has(mod(x+k))){ x+=k; break; } } return Math.min(84,Math.max(55,x)); };
 /* the bar's tune turned upside down around its first note, kept in the key */
 function baFlipped(i){
   const L=barLen(), t0=i*L*TICKS, t1=t0+L*TICKS, idx=chordIdxAt(i*L), sc=inKey(keyAt(Math.max(idx,0)),()=>scaleSet()), own=tune.filter(n=>n.t>=t0&&n.t<t1), first=own[0]?.m; if(!first) return null;
-  const fix=m=>{ let x=first-(m-first); for(let k=0;k<6;k++){ if(sc.has(mod(x-k))){ x-=k; break; } if(sc.has(mod(x+k))){ x+=k; break; } } return Math.min(84,Math.max(55,x)); };
+  const fix=m=>baFlip(first,m,sc);
   const flip=new Map(own.map(n=>[n.t-t0,fix(n.m)])); if(own.every(n=>flip.get(n.t-t0)===n.m)) return null;
   return tuneSlice(t0,t1).map(n=>({...n,m:flip.get(n.t)??n.m}));
 }
@@ -3509,11 +3511,12 @@ const MP_LEN={3:'sixteenths',4:'triplet eighths',6:'eighths',8:'triplet quarters
 function mpStyleLine(st){ const ls=[...st.lengths].sort((a,b)=>b-a).map(d=>MP_LEN[d]||`${+(d/TICKS).toFixed(2)}-beat notes`), nm=m=>prettyNote(spell(mod(m)))+(Math.floor(m/12)-1);
   return [st.meter, st.band==='none'?'almost no off-beat notes':st.band==='some'?'some off-beat notes':'lots of off-beat notes', ls.length>1?ls.slice(0,-1).join(', ')+' and '+ls.at(-1):ls[0]||'no notes',
     `${nm(st.lo)} to ${nm(st.hi)}`, st.maxLeap<2?'moves '+(MP_LEAP[st.maxLeap]==='steps'?'by step':'on one note'):'leaps '+(MP_LEAP[st.maxLeap]||'wider than an octave'), st.chrom?'uses notes outside the scale':'stays in the scale'].join(' · '); }
-/* tension per note, 0 (home) to 5 (clash), measured against the chord under it: root 0, 3rd or 5th 1, other chord tone or extension 2, passing 3, chromatic 4, clash 5; no chord: 3 in the scale, 4 out */
-function mpTension(chart){ return mpAs(chart,()=>chart.tune.map(n=>{ const b=n.t/TICKS, ci=chordIdxAt(Math.floor(b)), c=chords[ci]; let fit, v;
+/* tension per note (mpTen: one note, against the chart in place), 0 (home) to 5 (clash), measured against the chord under it: root 0, 3rd or 5th 1, other chord tone or extension 2, passing 3, chromatic 4, clash 5; no chord: 3 in the scale, 4 out */
+function mpTen(n){ const b=n.t/TICKS, ci=chordIdxAt(Math.floor(b)), c=chords[ci]; let fit, v;
   if(ci<0||!real(c)){ const out=mpOut(n); fit=out?'chrom':'pass'; v=out?4:3; }
   else { fit=noteFit(n.m,ci,b,n.d); const r=roleOf(c,mod(n.m)); v=fit==='tone'?(r==='R'?0:/^[♭♯]?[35]$/.test(r)?1:2):{ext:2,pass:3,chrom:4,clash:5}[fit]; }
-  return {t:n.t,v,fit}; })); }
+  return {t:n.t,v,fit}; }
+function mpTension(chart){ return mpAs(chart,()=>chart.tune.map(mpTen)); }
 /* tendency notes and where they want to go; resolved when one of the next two notes is the target (a raised 4th is read as the flat 5 degree) */
 const MP_PULL={'7':'1','4':'3','2':'1','♭6':'5','♭5':'5'};
 function mpPull(chart){ return mpAs(chart,()=>{ const dg=chart.tune.map(n=>inKey(mpKeyOf(n),()=>degOf(n.m))), out=[];
@@ -3569,6 +3572,24 @@ function mpLandings(ctx){ const {own}=mpSpan(ctx), out=[];
   own.forEach((a,k)=>{ const b=own[k+1]; if(!b||b.t!==a.t+a.d||a.d===b.d||a.m===b.m) return; const lo=ctx.t0+a.t+Math.min(a.d,b.d), hi=ctx.t0+a.t+Math.max(a.d,b.d);
     for(let bt=Math.ceil(lo/TICKS);bt*TICKS<hi;bt++) if(strongBeat(bt)){ out.push([k,bt*TICKS-ctx.t0]); return; } });
   return out; }
+/* move n scale steps in key k (down when n<0); a note outside the scale goes to the nearest scale note first, the lower one on a tie */
+function mpStep(m,k,n){ return inKey(k,()=>{ const sc=MODES[S.mode].sc, len=sc.length, at=x=>sc.includes(mod(x-S.tonic)); let x=m;
+  for(let d=0;d<7;d++){ if(at(m-d)){ x=m-d; break; } if(at(m+d)){ x=m+d; break; } }
+  const p=Math.floor((x-S.tonic)/12)*len+sc.indexOf(mod(x-S.tonic))+n, j=((p%len)+len)%len; return S.tonic+Math.floor(p/len)*12+sc[j]; }); }
+/* note-path helpers: a strong beat (absolute ticks), a chord's tones as noteFit counts them, and other pitches near m, nearest first and the lower on a tie */
+const mpStrongAt=t=>t%TICKS===0&&strongBeat(t/TICKS);
+const mpTones=c=>{ const t=pcsOf(c); if(c.bass!=null) t.push(c.bass); return t; };
+const mpNear=(m,ok)=>{ const out=[]; for(let d=1;d<12;d++) [m-d,m+d].forEach(x=>{ if(mod(x)!==mod(m)&&ok(x)) out.push(x); }); return out; };
+/* the stretch's high point (the earliest on a tie) and the strong-beat notes it can swap with, in time order */
+function mpPeaks(ctx){ const {own}=mpSpan(ctx); let pk=0; own.forEach((n,k)=>{ if(n.m>own[pk].m) pk=k; });
+  return {own,pk,to:own.length?own.map((n,k)=>k).filter(k=>own[k].m!==own[pk].m&&mpStrongAt(ctx.t0+own[k].t)):[]}; }
+/* strong-beat chord tones that have another tone of the same chord, at the same tension, to move to: [k, new pitch] in time order */
+function mpJobs(ctx){ const {own}=mpSpan(ctx), out=[];
+  own.forEach((n,k)=>{ const t=ctx.t0+n.t, ci=chordIdxAt(Math.floor(t/TICKS)); if(!mpStrongAt(t)||ci<0||!real(chords[ci])) return;
+    const was=mpTen({...n,t}); if(was.fit!=='tone') return;
+    const m=mpNear(n.m,x=>{ const y=mpTen({...n,t,m:x}); return y.fit==='tone'&&y.v===was.v; })[0]; if(m!=null) out.push([k,m]); });
+  return out; }
+const MP_SEQ=[1,-1,2,-2], mpSteps=by=>`${by>0?'up':'down'} ${Math.abs(by)>1?'two notes':'one note'} of the scale`;
 const MP_PATHS=[
   {id:'shift',kind:'rhythm',name:'Shift it along',keeps:['shape','steps','harmony'],changes:['rhythm'],variants:()=>MP_SHIFT.length,
     run(ctx,v){ const [by,say]=MP_SHIFT[v], {wall,held,own}=mpSpan(ctx); if(!own.length||by<0&&own[0].t+by<(held?held.d:0)) return null;
@@ -3599,6 +3620,30 @@ const MP_PATHS=[
     run(ctx,v){ const {wall,own}=mpSpan(ctx), ph=mpOwnPhrases(ctx,own)[v>>1]; if(!ph) return null; const i=ph.idx.at(-1), n=own[i], d=n.d+(v%2?-TICKS:TICKS), room=own[i+1]?own[i+1].t:wall;
       if(d<=0||n.t+d>room) return null;
       return {notes:mpPut(ctx,[...own.slice(0,i),{...n,d},...own.slice(i+1)]),words:`${mpWhere(ctx,n.t,n.t+Math.max(d,n.d))}: ${mpNm(n.m)} at the end of the phrase is ${v%2?'cut a beat shorter':'held a beat longer'}.`}; }},
+  {id:'peak',kind:'note',name:'Move the peak',keeps:['rhythm','harmony'],changes:['shape','steps'],variants:ctx=>mpPeaks(ctx).to.length,
+    run(ctx,v){ const {own,pk,to}=mpPeaks(ctx), k=to[v]; if(k==null) return null; const hi=own[pk], o=own[k], ns=own.map((n,i)=>i===pk?{...n,m:o.m}:i===k?{...n,m:hi.m}:n);
+      return {notes:mpPut(ctx,ns),words:`${mpWhere(ctx,own[Math.min(pk,k)].t,own[Math.max(pk,k)].t+1)}: the high ${mpNm(hi.m)} swaps places with ${mpNm(o.m)} on beat ${(ctx.t0+o.t)%(ctx.L*TICKS)/TICKS+1}, so the peak comes ${k<pk?'earlier':'later'}.`}; }},
+  {id:'samejob',kind:'note',name:'Same job, new note',keeps:['rhythm','tension','harmony'],changes:['steps','shape'],variants:ctx=>mpJobs(ctx).length,
+    run(ctx,v){ const j=mpJobs(ctx)[v]; if(!j) return null; const {own}=mpSpan(ctx), [k,m]=j, n=own[k];
+      return {notes:mpPut(ctx,own.map((x,i)=>i===k?{...x,m}:x)),words:`${mpWhere(ctx,n.t,n.t+1)}: ${mpNm(n.m)} becomes ${mpNm(m)}, another note of the same chord doing the same job.`}; }},
+  {id:'bend',kind:'note',name:'Bend the shape',keeps:['rhythm','harmony'],changes:['shape','steps'],variants:()=>2,
+    run(ctx,v){ const {own}=mpSpan(ctx); if(!own.length||v&&own.length<2) return null; const first=own[0].m, sc=inKey(ctx.k,()=>scaleSet());
+      return {notes:mpPut(ctx,own.map((n,k)=>({...n,m:v?own[own.length-1-k].m:baFlip(first,n.m,sc)}))),
+        words:`${mpWhere(ctx,own[0].t,own.at(-1).t+1)}: ${v?'the notes play in reverse order, with the rhythm kept':`the tune is turned upside down around ${mpNm(first)}, kept in the key`}.`}; }},
+  {id:'widen',kind:'note',name:'Widen or narrow',keeps:['rhythm','shape','harmony'],changes:['steps'],variants:()=>2,
+    run(ctx,v){ const {own}=mpSpan(ctx); if(own.length<2) return null; const pos=own.map(n=>inKey(ctx.k,()=>mpPos(n.m))), ns=[own[0]]; let moved=false;
+      for(let k=1;k<own.length;k++){ const s=pos[k]-pos[k-1]||Math.sign(own[k].m-own[k-1].m), g=Math.sign(s), w=v?(Math.abs(s)>1?s-g:s):s+g; if(w!==s) moved=true;
+        ns.push({...own[k],m:w?mpStep(ns[k-1].m,ctx.k,w):ns[k-1].m}); }
+      if(!moved) return null;
+      return {notes:mpPut(ctx,ns),words:`${mpWhere(ctx,own[0].t,own.at(-1).t+1)}: every move from note to note is one note of the scale ${v?'narrower (steps stay steps)':'wider'}, going the same way.`}; }},
+  {id:'sequence',kind:'note',name:'Move the opening up or down',keeps:['rhythm','shape','harmony'],changes:['tension','steps'],variants:()=>MP_SEQ.length,
+    run(ctx,v){ const {own}=mpSpan(ctx), ph=mpOwnPhrases(ctx,own)[0]; if(!ph) return null; const BT=ctx.L*TICKS, bar=Math.floor(ph.t0/BT), by=MP_SEQ[v];
+      const mo=ph.idx.filter(i=>Math.floor((own[i].t+ctx.t0)/BT)===bar), a=own[mo[0]], b=own[mo.at(-1)];
+      return {notes:mpPut(ctx,own.map((n,i)=>mo.includes(i)?{...n,m:mpStep(n.m,ctx.k,by)}:n)),words:`${mpWhere(ctx,a.t,b.t+1)}: the opening ${mo.length>1?mo.length+' notes':'note'} from ${mpNm(a.m)} ${mo.length>1?'move':'moves'} ${mpSteps(by)}.`}; }},
+  {id:'cadence',kind:'note',name:'End on another chord note',keeps:['rhythm','harmony'],changes:['tension'],variants:()=>2,
+    run(ctx,v){ const {len,wall,own}=mpSpan(ctx); if(!own.length||wall<len) return null; const n=own.at(-1), ci=chordIdxAt(Math.floor((ctx.t0+n.t)/TICKS)); if(ci<0||!real(chords[ci])) return null;
+      const m=mpNear(n.m,x=>mpTones(chords[ci]).includes(mod(x)))[v]; if(m==null) return null;
+      return {notes:mpPut(ctx,[...own.slice(0,-1),{...n,m}]),words:`${mpWhere(ctx,n.t,n.t+1)}: the phrase ends on ${mpNm(m)} instead of ${mpNm(n.m)}.`}; }},
 ];
 /* the Break away original as a chart mpAs can put in place (only the keys mpAs puts back) */
 const mpSrc=()=>({chords:BA.chords,tune:BA.tune,S:Object.fromEntries(MP_KEYS.map(k=>[k,BA.S[k]??S[k]]))});

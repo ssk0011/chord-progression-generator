@@ -2363,6 +2363,38 @@ async function pathsSuite() {
     const keep = BA; BA = null; const off = mpPathsFor(0, 192).length; BA = keep;
     return { first: first.v, a: a && a.v, same: JSON.stringify(a) === JSON.stringify(b), all, off }; });
   check('paths: Another one wraps and repeats deterministically', nx.same && nx.a !== null && nx.a !== nx.first && nx.all.includes(nx.first) && nx.off === 0, JSON.stringify(nx));
+  // Task 5: note paths, and the legality sweep
+  const stp = await page.evaluate(() => { const k = { t: 0, m: 'ionian' }; return [mpStep(64, k, 1), mpStep(64, k, -2), mpStep(60, k, -1), mpStep(71, k, 1), mpStep(61, k, 0), mpStep(66, k, 1), mpStep(62, { t: 2, m: 'ionian' }, 2)]; });
+  check('paths: mpStep moves by scale steps, snapping down on a tie', JSON.stringify(stp) === '[65,60,59,72,60,67,66]', JSON.stringify(stp));
+  await mpLoad(page, 'steps');
+  const bend = await page.evaluate(() => { BA = null; baToggle(); const keep = tune, flip = baFlipped(0); tuneClear(0, 48); tuneAdd(0, flip); const want = tune; tune = keep;
+    const got = MP_PATHS.find(p => p.id === 'bend').run(mpCtx(0, 48, mpSrc()), 0);
+    return [JSON.stringify(got && got.notes) === JSON.stringify(want), JSON.stringify(want) !== JSON.stringify(keep), tune === keep, got && got.words]; });
+  check('paths: bend on one bar equals Flip the tune\'s shape', bend[0] && bend[1] && bend[2] && /Bar 1/.test(bend[3]), JSON.stringify(bend));
+  const sj = await page.evaluate(() => { const x = mpPathsFor(0, 192).find(p => p.id === 'samejob'); if (!x) return null;
+    const v = l => JSON.stringify(mpTension({ ...mpChart(), tune: l }).map(n => n.v));
+    return { same: v(x.notes) === v(tune), moved: x.notes.filter((n, i) => n.m !== tune[i].m).length, n: x.notes.length === tune.length, words: x.words }; });
+  check('paths: samejob keeps the tension line', !!sj && sj.same && sj.moved > 0 && sj.n, JSON.stringify(sj));
+  const wd = await page.evaluate(() => { const ctx = mpCtx(0, 192, mpSrc()), p = MP_PATHS.find(p => p.id === 'widen'), shp = l => mpShape(l, mpPhrases(l, 4)[0]).steps;
+    return [0, 1].map(v => { const r = p.run(ctx, v); return r && { same: shp(r.notes) === shp(tune), moved: r.notes.some((n, i) => n.m !== tune[i].m), words: r.words }; }); });
+  check('paths: widen keeps the shape letters', wd.every(r => r && r.same && r.moved), JSON.stringify(wd));
+  /* every fixture (and the edge-crossing tune) x every phrase stretch, every bar and the whole chart x every path x every variant, through run itself */
+  const sweepFix = { ...MP_FIX, cross: ['C | G | Am | F', '4/4', 0, crossT] }, sweep = { runs: 0, offered: 0, ids: new Set(), fail: null };
+  for (const f of Object.values(sweepFix)) {
+    const r = await page.evaluate(([p, m, k, t]) => { S.tonic = k; S.mode = 'ionian'; S.meter = m; chords = parseProg(p).chords; tune = t; S.showMel = true; S.simple = false; commit(); BA = null; baToggle();
+      const L = barLen(), BT = L * TICKS, n = Math.ceil(chartTicks() / BT), src = mpSrc(), base = mpClose(src, mpChart()), keep = JSON.stringify(tune), out = { runs: 0, offered: 0, ids: [], fail: null };
+      const spans = [...mpPhrases(tune, L).map(x => [x.t0, x.t1]), ...Array.from({ length: n }, (_, i) => [i * BT, (i + 1) * BT]), [0, n * BT]];
+      for (const [t0, t1] of spans) { const ctx = mpCtx(t0, t1, src), edge = tune.filter(x => x.t < t0 && x.t + x.d > t0 || x.t < t1 && x.t + x.d > t1), outside = l => JSON.stringify(l.filter(x => x.t < t0 || x.t >= t1).map(({ t, d, m }) => [t, d, m]));
+        for (const p of MP_PATHS) { const of = p.variants(ctx); for (let v = 0; v < of; v++) { const r = p.run(ctx, v); out.runs++; if (!r) continue; out.ids.push(p.id); const l = r.notes;
+          let why = !Array.isArray(l) ? 'not a list' : l.some((a, i) => l[i + 1] && a.t > l[i + 1].t) ? 'not sorted' : l.some(a => !(a.d > 0)) ? 'a note with no length' : l.some((a, i) => l[i + 1] && a.t + a.d > l[i + 1].t) ? 'notes overlap'
+            : outside(l) !== outside(tune) ? 'changed a note outside the stretch' : edge.some(e => !l.some(x => x.t === e.t && x.d === e.d && x.m === e.m)) ? 'moved a note crossing the edge' : !r.words ? 'no words' : null;
+          if (!why) { const x = mpTry(p, v, of, ctx, src, base); if (x) { out.offered++; if (!mpAs({ ...mpChart(), tune: x.notes }, () => mpFits(x.notes, ctx.style, L)).ok) why = 'offered but outside the style'; } }
+          if (why && !out.fail) out.fail = { meter: S.meter, at: t0 + '-' + t1, id: p.id + v, why, notes: JSON.stringify(l) }; } } }
+      if (JSON.stringify(tune) !== keep) out.fail = out.fail || { why: 'the tune itself changed' };
+      return out; }, f);
+    sweep.runs += r.runs; sweep.offered += r.offered; r.ids.forEach(i => sweep.ids.add(i)); sweep.fail = sweep.fail || r.fail; }
+  const missing = ['shift', 'resplit', 'landing', 'motif', 'phraselen', 'peak', 'samejob', 'bend', 'widen', 'sequence', 'cadence'].filter(i => !sweep.ids.has(i));
+  check('paths: legality sweep', !sweep.fail && sweep.offered > 0 && !missing.length, JSON.stringify({ fail: sweep.fail, runs: sweep.runs, offered: sweep.offered, missing }));
   await page.evaluate(() => { BA = null; baStore(); });
   check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
