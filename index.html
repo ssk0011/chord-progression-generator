@@ -3692,6 +3692,8 @@ function mpNext(id,t0,t1,from){ const p=MP_PATHS.find(x=>x.id===id); if(!BA||!p)
 /* mpAt: the stretch being worked on; mpItem: the path being previewed; rollGhost: its notes, drawn in the roll while rollGhostFor is still the tune and chords */
 let mpAt=null, mpItem=null, rollGhost=null, rollGhostFor='', mpList=null, mpWhyOpen=false;
 const mpNow=()=>JSON.stringify([tune,chords]);
+/* a path item is the same one when its path and variant match, whichever copy of the list it came from */
+const mpSame=(a,b)=>!!a&&!!b&&a.id===b.id&&a.v===b.v;
 /* a preview made for an older tune or chart is dropped, so the roll never shows a stale ghost */
 function mpFresh(){ if(rollGhost&&rollGhostFor!==mpNow()){ rollGhost=null; mpItem=null; } return !!rollGhost; }
 function mpGhost(x){ mpItem=x; rollGhost=x?x.notes.filter(n=>n.t<mpAt.t1&&n.t+n.d>mpAt.t0):null; rollGhostFor=x?mpNow():''; }
@@ -3703,13 +3705,19 @@ function mpHear(notes,t0,t1){
   notes.forEach(n=>{ const s=Math.max(n.t/TICKS,b0), e=Math.min((n.t+n.d)/TICKS,b1); if(e>s+1e-9) tone(n.m,at+(s-b0)*unit,(e-s)*unit*.94,.2,out); });
 }
 /* with Link repeats on, a new tune is copied into the other copies of a named section it changed (same chords, and the same tune
-   there before), when exactly one copy changed: syncRepeats' rule, for the tune */
-function mpLinkTune(notes){ const secs=sectionsOf().filter(s=>s.name); if(!S.linkForm||secs.length<2) return notes; const keep=tune;
+   there before), when exactly one copy changed: syncRepeats' rule, for the tune. A note held across a section's edge is never cut
+   (Ruling J): a copy with one keeps its tune, and if the changed section has one, no copy takes the change. kept says which, in words */
+function mpLinkPlan(notes){ const secs=sectionsOf().filter(s=>s.name), kept=[]; if(!S.linkForm||secs.length<2) return {tune:notes,kept}; const keep=tune, L=barLen();
+  const held=(list,s)=>{ for(const b of [s.b0*TICKS,s.b1*TICKS]){ if(list.some(n=>n.t<b&&n.t+n.d>b)) return b===s.b0*TICKS?'into it':'past its end'; } return ''; };
   try{ const was=secs.map(s=>melSlice(s.b0,s.b1)); tune=notes; const now=secs.map(s=>melSlice(s.b0,s.b1)), groups={};
     secs.forEach((s,k)=>{ const g=s.base+'\u0000'+s.sig+'\u0000'+was[k]; (groups[g]=groups[g]||[]).push(k); });
-    for(const ks of Object.values(groups)){ const ch=ks.filter(k=>now[k]!==was[k]); if(ks.length<2||ch.length!==1) continue; const s=secs[ch[0]], part=tuneSlice(s.b0*TICKS,s.b1*TICKS);
-      ks.filter(k=>k!==ch[0]).forEach(k=>{ const t=secs[k]; tuneClear(t.b0*TICKS,t.b1*TICKS); tuneAdd(t.b0*TICKS,part); }); }
-    return tune; } finally{ tune=keep; } }
+    for(const ks of Object.values(groups)){ const ch=ks.filter(k=>now[k]!==was[k]); if(ks.length<2||ch.length!==1) continue; const s=secs[ch[0]], others=ks.filter(k=>k!==ch[0]);
+      if(held(notes,s)){ kept.push(others.length>1?`The other ${plural(s.name)} kept their tune: a note is held across the edge of this one.`:`The other ${s.name} kept its tune: a note is held across the edge of this one.`); continue; }
+      const part=tuneSlice(s.b0*TICKS,s.b1*TICKS);
+      others.forEach(k=>{ const t=secs[k], h=held(keep,t); if(h){ kept.push(`The ${t.name} at bar ${t.b0/L+1} kept its tune: a note is held ${h}.`); return; }
+        tuneClear(t.b0*TICKS,t.b1*TICKS); tuneAdd(t.b0*TICKS,part); }); }
+    return {tune,kept}; } finally{ tune=keep; } }
+const mpLinkTune=notes=>mpLinkPlan(notes).tune;
 /* the named sections taking notes would change, and their name when they share one */
 function mpLinkInfo(notes){ const after=mpLinkTune(notes), keep=tune, secs=sectionsOf().filter(s=>s.name); let ch;
   try{ const was=secs.map(s=>melSlice(s.b0,s.b1)); tune=after; ch=secs.filter((s,k)=>melSlice(s.b0,s.b1)!==was[k]); } finally{ tune=keep; }
@@ -3717,9 +3725,11 @@ function mpLinkInfo(notes){ const after=mpLinkTune(notes), keep=tune, secs=secti
 const mpLinked=notes=>mpLinkInfo(notes).n;
 /* "Same note, new job": the stretch's longest repeated or held note, and up to 3 single chords from the swap ideas (inside Chords
    allowed) that contain it and give it a different amount of tension; the chart only changes if the person picks one */
-const mpOrd=r=>{ if(r==='R') return 'root'; if(r==='bass') return 'bass note'; const d=r.replace(/[^0-9]/g,''); return r+(/1[123]$/.test(d)?'th':{1:'st',2:'nd',3:'rd'}[d.slice(-1)]||'th'); };
+const MP_ROLE={R:'root',bass:'bass note','♭9':'flat 9th','9':'9th','♯9':'sharp 9th','2':'2nd','♭3':'minor 3rd','3':'major 3rd','4':'4th','11':'11th','♯11':'sharp 11th','♭5':'flat 5th','5':'5th','♯5':'sharp 5th','6':'6th','♭13':'flat 13th','13':'13th','♭7':'minor 7th','7':'major 7th','°7':'diminished 7th'};
+const mpOrd=r=>MP_ROLE[r]||'note';
 function mpNewJob(t0,t1){ const own=tune.filter(n=>n.t>=t0&&n.t<t1); if(!own.length) return [];
-  let best=null; for(let i=0;i<own.length;){ let j=i, d=own[i].d; while(own[j+1]&&own[j+1].m===own[i].m&&own[j+1].t===own[j].t+own[j].d){ j++; d+=own[j].d; } if(!best||d>best.d) best={n:own[i],d}; i=j+1; }
+  let best=null; for(let i=0;i<own.length;){ let j=i, d=own[i].d; while(own[j+1]&&own[j+1].m===own[i].m&&own[j+1].t===own[j].t+own[j].d){ j++; d+=own[j].d; } if(!best||d>best.d) best={n:own[i],d,k:j-i+1}; i=j+1; }
+  if(best.k<2&&best.n.d<=TICKS) return []; /* only a repeated or held note has a job to change */
   const n=best.n, idx=chordIdxAt(Math.floor(n.t/TICKS)); if(idx<0||!real(chords[idx])||chords[idx].lock) return [];
   const pc=mod(n.m), was=mpTen(n).v, k=keyAt(idx), out=[], {groups}=inKey(k,()=>suggestions(idx));
   for(const g of groups) for(const it of g.items){ if(out.length>=3) break; if(it.chords.length!==1||it.outside) continue; const c=it.chords[0]; if(!pcsOf(c).includes(pc)) continue;
@@ -3742,13 +3752,13 @@ function mpWhy(at){ const L=barLen(), BT=L*TICKS, ns=tune.filter(n=>n.t>=at.t0&&
   const r=mpRhythm(ns,L), ph=r.phrases[0];
   const rhythm=`The rhythm starts ${ph.start==='on'?'on the beat':ph.start==='before'?'just before the beat':'after the beat'}, with ${r.sync<.1?'almost no off-beat notes':r.sync<.35?'some off-beat notes':'lots of off-beat notes'}.`;
   const tn=mpTension(mpChart()), ix=tune.map((n,i)=>i).filter(i=>tune[i].t>=at.t0&&tune[i].t<at.t1); let hi=ix[0]; ix.forEach(i=>{ if(tn[i].v>tn[hi].v) hi=i; });
-  const h=tune[hi], b=h.t/TICKS, tension=tn[hi].v<=1?'Every note is a chord note, so the tension stays low.':`The most tension is on ${mpNm(h.m)} in bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${tn[hi].fit==='clash'?'a clash':'a '+NOTE_FIT[tn[hi].fit]}.`;
+  const h=tune[hi], b=h.t/TICKS, tension=tn[hi].v<=1?'Every note is a chord note, so the tension stays low.':`The most tension is on ${mpNm(h.m)} in bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${tn[hi].fit==='clash'?'a clash':(/^[aeiou]/.test(NOTE_FIT[tn[hi].fit])?'an ':'a ')+NOTE_FIT[tn[hi].fit]}.`;
   const pulls=mpPull(mpChart()).filter(p=>tune[p.i].t>=at.t0&&tune[p.i].t<at.t1).map(p=>`${mpNm(tune[p.i].m)} (degree ${p.deg}) leans toward degree ${p.toward}${p.resolved?', and gets there':', and doesn’t get there'}.`);
   return {say:[shape,rhythm,tension],pulls}; }
 /* items for the stretch, worked out once per tune, chart and stretch; Toss and Another one change this list until the tune changes */
 function mpItemsFor(at){ const key=JSON.stringify([tune,chords,MP_KEYS.map(k=>S[k]),S.linkForm,at.t0,at.t1]); if(mpList&&mpList.key===key&&mpList.ba===BA) return mpList;
   const dress=x=>x&&{...x,nx:mpNext(x.id,at.t0,at.t1,x.v),linked:mpLinkInfo(x.notes)};
-  mpList={key,ba:BA,dress,items:mpPathsFor(at.t0,at.t1).map(dress),jobs:mpNewJob(at.t0,at.t1),why:mpWhy(at)}; if(mpItem&&!mpList.items.some(x=>x.id===mpItem.id&&x.v===mpItem.v)) mpGhost(null); return mpList; }
+  mpList={key,ba:BA,dress,items:mpPathsFor(at.t0,at.t1).map(dress),jobs:mpNewJob(at.t0,at.t1),why:mpWhy(at)}; if(mpItem&&!mpList.items.some(x=>mpSame(x,mpItem))) mpGhost(null); return mpList; }
 function mpHTML(el){
   if(!tune.length){ el._mp=null; return '<p class="ba-sub mp-empty">Add a tune to see its shape and paths.</p>'; }
   const src=mpSrc(), base=mpClose(src,mpChart()), list=mpStretches(), at=mpStretch(list,base);
@@ -3758,7 +3768,7 @@ function mpHTML(el){
   const rows=MP_LAYERS.filter(k=>cl.layers[k]!=null).map(k=>{ const v=cl.layers[k], p=Math.round(v*100), w=mpWord(v);
     return `<div class="mp-row"><span class="mp-lab" id="mpl-${k}">${MP_LABEL[k]}</span><span class="mp-meter" role="meter" aria-labelledby="mpl-${k}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p}" aria-valuetext="${w}"><span class="mp-track" aria-hidden="true"><span class="mp-fill" style="width:${p}%"></span></span><b>${w}</b></span><button type="button" class="btn small" data-mp="keep" data-k="${k}" aria-pressed="${kept.includes(k)}" aria-label="Keep the ${lc(k)} close on purpose" title="Keeping it on purpose: it won’t be named as still close">Keep</button></div>`; }).join('');
   const give=g?`<p class="mp-give">The ${lc(g.layer)} ${g.layer==='harmony'?'are':'is'} still ${mpWord(cl.layers[g.layer])} to the original in ${g.b0===g.b1?`bar ${g.b0+1}`:`bars ${g.b0+1}–${g.b1+1}`}.</p>`:'';
-  const item=(x,i)=>{ const on=mpItem===x, ln=x.linked, take=ln.n>1?ln.name?`Take (changes all ${ln.n} ${plural(ln.name)})`:`Take (changes ${ln.n} sections)`:'Take';
+  const item=(x,i)=>{ const on=mpSame(mpItem,x), ln=x.linked, take=ln.n>1?ln.name?`Take (changes all ${ln.n} ${plural(ln.name)})`:`Take (changes ${ln.n} sections)`:'Take';
     return `<li data-mi="${i}"${on?' class="on"':''}><b>${esc(x.name)}</b><span class="mp-kc"><span><span class="label">Keeps:</span> ${x.keeps.map(lc).join(', ')}</span><span><span class="label">Changes:</span> ${x.changes.map(lc).join(', ')}</span></span><p>${esc(x.words)}</p>
       <span class="mp-btns"><button type="button" class="btn small" data-mp="show" aria-pressed="${on}">Show</button><button type="button" class="btn small" data-mp="before">Hear before</button><button type="button" class="btn small" data-mp="after">Hear after</button><button type="button" class="btn small" data-mp="take">${esc(take)}</button>${x.nx?'<button type="button" class="btn small" data-mp="next">Another one</button>':''}<button type="button" class="btn small" data-mp="toss">Toss</button></span></li>`; };
   const job=P.jobs.length?`<li class="mp-job"><b>Same note, new job</b><p>The note stays. A different chord under it changes what it does.</p>${P.jobs.map((j,k)=>{ const nm=esc(inKey(keyAt(j.idx),()=>chordName(j.c)));
@@ -3777,10 +3787,10 @@ function mpClick(t){ const P=$('#breakaway')._mp, w=t.dataset.mp;
   const li=t.closest('[data-mi]'), i=li?+li.dataset.mi:-1, x=P.items[i]; if(!x) return;
   if(w==='before'){ mpHear(tune,at.t0,at.t1); return; }
   if(w==='after'){ mpHear(x.notes,at.t0,at.t1); return; }
-  if(w==='take'){ pushHist(); tune=mpLinkTune(x.notes); mpGhost(null); commit(); toast(`${x.name}: done`,{label:'Undo',fn:undoTo(hist[hist.length-1])}); return; }
-  if(w==='toss'){ P.items.splice(i,1); if(mpItem===x) mpGhost(null); renderRoll(); renderBreak(); return; }
-  if(w==='next'){ const y=P.dress(x.nx); P.items[i]=y; if(mpItem===x) mpGhost(y); renderRoll(); renderBreak(); return; }
-  if(w==='show'){ mpGhost(mpItem===x?null:x);
+  if(w==='take'){ const plan=mpLinkPlan(x.notes); pushHist(); tune=plan.tune; mpGhost(null); commit(); toast([`${x.name}: done.`,...plan.kept].join(' '),{label:'Undo',fn:undoTo(hist[hist.length-1])}); return; }
+  if(w==='toss'){ P.items.splice(i,1); if(mpSame(mpItem,x)) mpGhost(null); renderRoll(); renderBreak(); return; }
+  if(w==='next'){ const y=P.dress(x.nx); P.items[i]=y; if(mpSame(mpItem,x)) mpGhost(y); renderRoll(); renderBreak(); return; }
+  if(w==='show'){ mpGhost(mpSame(mpItem,x)?null:x);
     if(mpItem&&!rollOn()){ S.showMel=true; S.melView='roll'; renderAll(); save(); toast('Showing the path in the piano roll'); return; }
     renderRoll(); renderBreak(); }
 }

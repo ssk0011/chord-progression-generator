@@ -2434,13 +2434,25 @@ async function pathsSuite() {
   await page.click('#breakaway .mp-paths [data-mp=take]');
   const lk2 = await page.evaluate(() => [JSON.stringify(tuneSlice(0, 96)), JSON.stringify(tuneSlice(192, 288)), JSON.stringify(tuneSlice(96, 192))]);
   await page.evaluate(() => undo());
-  check('paths: linked Chorus says how many change', lk[0].includes('all 2 Choruses') && lk2[0] === lk2[1] && lk2[0] !== JSON.stringify([60, 62, 64].map((m, i) => ({ t: i * 12, d: 12, m }))) && await page.evaluate(() => JSON.stringify(tune)) === lk[1], JSON.stringify([lk, lk2]));
+  check('paths: linked Chorus says how many change', lk[0].includes('all 2 Choruses') && lk2[0] === lk2[1] && lk2[0] !== JSON.stringify([60, 62, 64].map((m, i) => ({ t: i * 12, d: 12, m }))) && lk2[2] === JSON.stringify([65, 64, 62].map((m, i) => ({ t: i * 12, d: 12, m }))) && await page.evaluate(() => JSON.stringify(tune)) === lk[1], JSON.stringify([lk, lk2]));
+  /* a note held from the Verse into the second Chorus: that copy keeps its tune, the held note keeps its length, and the label and toast say so */
+  await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('[Chorus] C G\n[Verse] F C\n[Chorus] C G').chords; const ph = (ms, t) => ms.map((m, i) => ({ t: t + i * 12, d: 12, m }));
+    tune = [...ph([60, 62, 64], 0), ...ph([65, 64], 96), { t: 180, d: 24, m: 60 }, ...ph([62, 64], 204)]; S.showMel = true; S.simple = false; S.linkForm = true; S.melView = 'roll'; commit(); BA = null; baToggle(); document.querySelector('#toast').hidden = true; });
+  const hl = await page.evaluate(() => [document.querySelector('#breakaway .mp-paths [data-mp=take]')?.textContent || '', JSON.stringify(tuneSlice(192, 288)), formInfo()[2].of === 0]);
+  await page.click('#breakaway .mp-paths [data-mp=take]');
+  const hl2 = await page.evaluate(() => [tune.find(n => n.t === 180)?.d, JSON.stringify(tuneSlice(192, 288)), JSON.stringify(tuneSlice(0, 96)), document.querySelector('#toast').textContent]);
+  await page.evaluate(() => undo());
+  check('paths: a linked copy with a note held into it keeps its tune', hl[2] && hl[0] === 'Take' && hl2[0] === 24 && hl2[1] === hl[1] && hl2[2] !== hl[1] && /Chorus at bar 5 kept its tune: a note is held into it/.test(hl2[3]), JSON.stringify([hl, hl2]));
   await fresh('repeat');
   const nj = await page.evaluate(() => mpNewJob(0, 48).map(j => ({ pcs: pcsOf(j.c), why: j.why, idx: j.idx })));
+  check('paths: newjob words use plain interval names', nj.length > 0 && nj.every(j => /becomes the (root|bass note|(minor|major|flat|sharp|diminished) \d+(st|nd|rd|th)|\d+(st|nd|rd|th)) of/.test(j.why) && !/[♭♯°]/.test(j.why.split(' of ')[0])), JSON.stringify(nj));
   check('paths: newjob suggests a chord that keeps the note', nj.length >= 1 && nj.length <= 3 && nj.every(j => j.pcs.includes(7) && j.idx === 0 && /^G becomes the .+ of .+: same note, /.test(j.why)), JSON.stringify(nj));
   await page.evaluate(() => { const s = document.querySelector('#breakaway [data-mp=at]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); });
   check('paths: newjob chords are listed with Hear and Try', await page.locator('#breakaway .mp-paths [data-mp=tryj]').count() >= 1 && /^Try /.test(await page.textContent('#breakaway .mp-paths [data-mp=tryj]')));
   check('paths: Work on lists phrases and the whole tune', await page.evaluate(() => { const o = [...document.querySelectorAll('#breakaway [data-mp=at] option')].map(x => x.textContent); return o.at(-1) === 'Whole tune' && /^Bars? \d/.test(o[0]); }));
+  await fresh('steps');
+  check('paths: newjob offers nothing without a repeated or held note', await page.evaluate(() => mpNewJob(0, 48).length === 0 && mpNewJob(0, 192).length === 0));
+  check('paths: the why uses the right article', await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 62 }]; chords = parseProg('C').chords; const w = mpWhy({ t0: 0, t1: 48 }).say[2], f = mpTen(tune[0]).fit; return f === 'ext' ? w.endsWith(': an extension.') : f === 'pass' ? w.endsWith(': a passing note.') : 'fit ' + f; }) === true);
   await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('C | G | Am | F').chords; tune = []; S.showMel = true; S.simple = false; commit(); BA = null; baToggle(); });
   check('paths: empty stretch says add a tune', (await page.textContent('#breakaway')).includes('Add a tune to see its shape and paths.') && await page.locator('#breakaway .mp-paths').count() === 0);
   await page.evaluate(() => { BA = null; baStore(); S.melView = 'lane'; });
