@@ -2299,6 +2299,35 @@ async function pathsSuite() {
   check('paths: pull finds B resolving to C', JSON.stringify(pl) === '[{"deg":"7","toward":"1","resolved":true}]', JSON.stringify(pl));
   const pl2 = await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 71 }, { t: 12, d: 12, m: 67 }, { t: 24, d: 12, m: 64 }]; return mpPull(mpChart()).map(x => x.resolved); });
   check('paths: pull says when B does not resolve', JSON.stringify(pl2) === '[false]', JSON.stringify(pl2));
+  // Task 3: closeness by layer
+  const cl = (srcName, workFn) => page.evaluate(([s, fn]) => { const L = ([p, m, k, t]) => ({ chords: parseProg(p).chords, tune: t, S: { tonic: k, mode: 'ionian', meter: m, tempo: S.tempo } }); return mpClose(L(s), eval(fn)(L(s))); }, [MP_FIX[srcName], workFn]);
+  const all1 = r => Object.values(r.layers).every(v => v === 1);
+  const r0 = await cl('steps', 'c => c');
+  check('paths: a chart against itself is 1 on every layer', all1(r0) && r0.giveaway === null, JSON.stringify(r0));
+  const r1 = await cl('steps', 'c => ({ chords: c.chords.map(x => ({ ...x, root: (x.root + 5) % 12 })), tune: c.tune.map(n => ({ ...n, m: n.m + 5 })), S: { ...c.S, tonic: 5 } })');
+  check('paths: transposed copy is still 1 on every layer', all1(r1), JSON.stringify(r1.layers));
+  const peg = 'c => ({ chords: c.chords, tune: c.tune.map(n => { const sc = [0, 2, 4, 5, 7, 9, 11]; let m = 128 - n.m; while (!sc.includes(m % 12)) m--; return { ...n, m }; }), S: c.S })';
+  const r2 = await cl('steps', peg);
+  check('paths: same rhythm new pitches is the Peg problem', r2.layers.rhythm === 1 && r2.layers.steps < 0.5 && r2.giveaway && r2.giveaway.layer === 'rhythm', JSON.stringify(r2.layers) + JSON.stringify(r2.giveaway));
+  await page.evaluate(() => { BA = { kept: ['rhythm'] }; });
+  const r3 = await cl('steps', peg);
+  await page.evaluate(() => { BA = { kept: ['harmony'] }; });
+  const r4 = await cl('steps', peg);
+  await page.evaluate(() => { BA = null; });
+  check('paths: kept layers are not named as the giveaway', r3.giveaway?.layer === 'harmony' && JSON.stringify(r4.giveaway) === '{"layer":"rhythm","b0":0,"b1":3}', JSON.stringify([r3.giveaway, r4.giveaway]));
+  const r5 = await page.evaluate(([w, s]) => { const L = ([p, m, k, t]) => ({ chords: parseProg(p).chords, tune: t, S: { tonic: k, mode: 'ionian', meter: m, tempo: S.tempo } }); return mpClose(L(w), L(s)); }, [MP_FIX.waltz, MP_FIX.steps]);
+  check('paths: 3/4 source against 4/4 work does not throw', Object.values(r5.layers).every(v => typeof v === 'number' && v >= 0 && v <= 1), JSON.stringify(r5.layers));
+  const r6 = await page.evaluate(([s, w]) => { const L = ([p, m, k, t], tt) => ({ chords: parseProg(p).chords, tune: tt || t, S: { tonic: k, mode: 'ionian', meter: m, tempo: S.tempo } }); return mpClose(L(s, []), L(s, [])); }, [MP_FIX.steps]);
+  check('paths: no tune means note layers are null', r6.layers.rhythm === null && r6.layers.tension === null && typeof r6.layers.harmony === 'number', JSON.stringify(r6.layers));
+  check('paths: words for closeness', JSON.stringify(await page.evaluate(() => [1, .85, .6, .35, .1].map(mpWord))) === '["very close","very close","close","some way off","far"]');
+  await mpLoad(page, 'steps');
+  await page.evaluate(() => { BA = null; baToggle(); BA.kept = ['harmony', 'bogus']; baStore(); });
+  await page.reload();
+  check('paths: kept survives a reload', JSON.stringify(await page.evaluate(() => BA.kept)) === '["harmony"]', JSON.stringify(await page.evaluate(() => BA && BA.kept)));
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem(BA_KEY)); delete d.kept; localStorage.setItem(BA_KEY, JSON.stringify(d)); });
+  await page.reload();
+  check('paths: old v2 record without kept still loads', await page.evaluate(() => JSON.stringify(BA.kept) === '[]' && BA.chords.length === 4 && BA.tune.length === 16 && baReport().total === 4));
+  await page.evaluate(() => { BA = null; baStore(); });
   check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
 }

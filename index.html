@@ -3373,12 +3373,12 @@ function renderFormBar(){
 const BA_KEY='changes-breakaway-v1';
 let BA=null, baNow=null, baHearing=false;
 function baLoad(){ try{ const d=JSON.parse(localStorage.getItem(BA_KEY)||'null'); if(!d) return; const list=sanitizeChords(d.chords); if(!list||!list.length) return;
-  BA={S:sanitizeS(pickS(d.S)),chords:list,tune:readTune(d)}; }catch(e){} }
-function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({v:2,S:BA.S,chords:BA.chords.map(({id,...c})=>c),tune:BA.tune})); else localStorage.removeItem(BA_KEY); }catch(e){} }
+  BA={S:sanitizeS(pickS(d.S)),chords:list,tune:readTune(d),kept:Array.isArray(d.kept)?MP_LAYERS.filter(k=>d.kept.includes(k)):[]}; }catch(e){} }
+function baStore(){ try{ if(BA) localStorage.setItem(BA_KEY,JSON.stringify({v:2,S:BA.S,chords:BA.chords.map(({id,...c})=>c),tune:BA.tune,kept:BA.kept||[]})); else localStorage.removeItem(BA_KEY); }catch(e){} }
 function baToggle(){
   if(BA){ const old=BA; if(baHearing) stopAll(); BA=null; baStore(); renderAll(); toast('Stopped comparing. The original is gone from here.',{label:'Undo',fn:()=>{ BA=old; baStore(); renderAll(); }}); return; }
   if(!chords.some(real)){ toast('Add the chords you want to move away from first'); return; }
-  const snap=JSON.parse(JSON.stringify(curSnap())); BA={S:snap.S,chords:sanitizeChords(snap.chords),tune:snap.tune}; baStore(); renderAll();
+  const snap=JSON.parse(JSON.stringify(curSnap())); BA={S:snap.S,chords:sanitizeChords(snap.chords),tune:snap.tune,kept:[]}; baStore(); renderAll();
 }
 const baChord=(c,shift=0)=>mod(c.root+shift)+(Q[c.q].tri||c.q);
 /* one entry per bar: its chords, its notes and where they start */
@@ -3518,6 +3518,35 @@ function mpTension(chart){ return mpAs(chart,()=>chart.tune.map(n=>{ const b=n.t
 const MP_PULL={'7':'1','4':'3','2':'1','♭6':'5','♭5':'5'};
 function mpPull(chart){ return mpAs(chart,()=>{ const dg=chart.tune.map(n=>inKey(mpKeyOf(n),()=>degOf(n.m))), out=[];
   dg.forEach((d,i)=>{ const to=MP_PULL[d]; if(to) out.push({i,deg:d==='♭5'?'♯4':d,toward:to,resolved:dg.slice(i+1,i+3).includes(to)}); }); return out; }); }
+/* closeness by layer: how near a working copy sits to the original, per layer, bar by bar (bars line up from bar 0, each chart using its own bar length) */
+const MP_LAYERS=['rhythm','shape','steps','tension','harmony'], MP_LABEL={rhythm:'Rhythm',shape:'Shape',steps:'Exact steps',tension:'Tension against the chords',harmony:'Chord changes'};
+function mpLev(a,b){ let row=Array.from({length:b.length+1},(_,j)=>j);
+  for(let i=1;i<=a.length;i++){ const nx=[i]; for(let j=1;j<=b.length;j++) nx[j]=Math.min(row[j]+1,nx[j-1]+1,row[j-1]+(a[i-1]===b[j-1]?0:1)); row=nx; }
+  return row[b.length]; }
+const mpJac=(x,y)=>{ const a=new Set(x), b=new Set(y), u=new Set([...a,...b]); return u.size?[...a].filter(v=>b.has(v)).length/u.size:1; };
+const mpSim=(a,b)=>{ const n=Math.max(a.length,b.length); return n?1-mpLev(a,b)/n:1; };
+/* everything a layer needs from one chart, split into bars: onsets as fractions of the bar, shape letters, intervals, tension at each beat, chord changes and numerals */
+function mpBars(chart){ const tn=mpTension(chart); return mpAs(chart,()=>{ const L=barLen(), BT=L*TICKS, ns=chart.tune, st=chordStarts(), n=Math.max(Math.ceil(chartTicks()/BT),ns.length?Math.floor((ns.at(-1).t)/BT)+1:0), bars=[];
+  for(let i=0;i<n;i++){ const idx=ns.map((x,k)=>k).filter(k=>Math.floor(ns[k].t/BT)===i), on=idx.map(k=>(ns[k].t-i*BT)/BT);
+    const ivs=[], sh=[]; idx.forEach((k,j)=>{ if(j){ const d=ns[k].m-ns[idx[j-1]].m; ivs.push(d); sh.push(d>0?'u':d<0?'d':'s'); } });
+    const ten=[]; for(let b=0;b<L;b++){ const t=i*BT+b*TICKS, k=ns.findIndex(x=>x.t<=t&&t<x.t+x.d); ten.push(k<0?null:tn[k].v); }
+    const ch=chords.map((c,k)=>k).filter(k=>chords[k].beats>0&&st[k]*TICKS<(i+1)*BT-1e-9&&(st[k]+chords[k].beats)*TICKS>i*BT+1e-9);
+    bars.push({has:idx.length>0,on,shape:sh.join(''),steps:ivs,ten,chg:ch.filter(k=>st[k]*TICKS>=i*BT-1e-9).map(k=>(st[k]*TICKS-i*BT)/BT),nums:ch.filter(k=>real(chords[k])).map(k=>analyze(chords[k]).num)}); }
+  return bars; }); }
+function mpClose(src,work){ const A=mpBars(src), B=mpBars(work), n=Math.max(A.length,B.length), E={has:false,on:[],shape:'',steps:[],ten:[],chg:[],nums:[]}, bars={}, layers={};
+  MP_LAYERS.forEach(k=>{ bars[k]=[]; });
+  for(let i=0;i<n;i++){ const a=A[i]||E, b=B[i]||E, note=a.has||b.has;
+    bars.rhythm.push(note?mpJac(a.on,b.on):null); bars.shape.push(note?mpSim(a.shape,b.shape):null); bars.steps.push(note?mpSim(a.steps,b.steps):null);
+    const d=a.ten.map((x,j)=>x==null&&b.ten[j]==null?null:x==null||b.ten[j]==null?5:Math.abs(x-b.ten[j])).filter(x=>x!=null);
+    bars.tension.push(note?(d.length?1-d.reduce((p,q)=>p+q,0)/d.length/5:1):null);
+    bars.harmony.push((mpJac(a.chg,b.chg)+mpJac(a.nums,b.nums))/2); }
+  MP_LAYERS.forEach(k=>{ const v=bars[k].filter(x=>x!=null); layers[k]=v.length?v.reduce((p,q)=>p+q,0)/v.length:null; });
+  const kept=(typeof BA!=='undefined'&&BA&&BA.kept)||[], live=MP_LAYERS.filter(k=>layers[k]!=null);
+  let top=null; MP_LAYERS.forEach(k=>{ if(!kept.includes(k)&&layers[k]!=null&&(top==null||layers[k]>layers[top])) top=k; });
+  let giveaway=null; if(top){ const rest=live.filter(k=>k!==top), mean=rest.length?rest.reduce((p,k)=>p+layers[k],0)/rest.length:0;
+    if(layers[top]>=.8&&layers[top]-mean>=.25){ let b0=-1,b1=-1,s=-1; bars[top].forEach((v,i)=>{ if(v!=null&&v>=.8){ if(s<0) s=i; if(b1<0||i-s+1>b1-b0+1) { b0=s; b1=i; } } else s=-1; }); giveaway={layer:top,b0,b1}; } }
+  return {layers,bars,giveaway}; }
+const mpWord=v=>v>=.85?'very close':v>=.6?'close':v>=.35?'some way off':'far';
 /* ============ a tune from the Harmonize box ============ */
 /* it goes in from the bar in hand and replaces only the stretch it covers; the box says which bars before anything is written */
 let laneBar=null, laneTok=''; /* the beat last clicked in the chart, chord or note, until the selection moves on */
