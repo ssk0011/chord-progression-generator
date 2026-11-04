@@ -901,6 +901,31 @@ select.btn{border-radius:var(--r-pill)}
 .mcell.split .mh.hold i{display:block;width:70%;height:3px;border-radius:2px;background:currentColor;opacity:.55}
 .mcell.split .mh.hcur{box-shadow:inset 0 0 0 2px var(--ink)}
 .mcell.cur{outline-width:3px}
+.roll{margin:0 0 10px}
+.roll[hidden]{display:none}
+.roll-scroll{overflow:auto;max-height:min(60vh,560px);border:1px solid var(--line);border-radius:var(--r-xs,6px);background:var(--surface);overscroll-behavior:contain}
+.roll-grid{display:grid;width:max-content}
+.roll-corner{position:sticky;top:0;left:0;z-index:4;background:var(--surface);border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+.roll-strip{position:sticky;top:0;z-index:3;background:var(--surface);border-bottom:1px solid var(--line)}
+.roll-strip .rc{position:absolute;top:14px;bottom:3px;padding:0 4px;overflow:hidden;white-space:nowrap;font-weight:700;font-size:calc(12px*var(--fs,1));line-height:22px;border:1.5px solid var(--line);border-radius:4px;background:var(--surface)}
+.roll-strip .rbn{position:absolute;top:0;padding-left:2px;font-size:10px;color:var(--muted)}
+.roll-keys{position:sticky;left:0;z-index:2;background:var(--surface);border-right:1px solid var(--line)}
+.rk{display:flex;justify-content:space-between;align-items:center;padding:0 4px;font-size:10px;box-sizing:border-box;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent)}
+.rk.out{background:color-mix(in srgb,var(--ink) 9%,var(--surface));color:var(--muted)}
+.rk span{color:var(--muted)}
+.roll-body{display:block;touch-action:none}
+.roll-body .ro{fill:color-mix(in srgb,var(--ink) 6%,transparent)}
+.roll-body .rg{fill:color-mix(in srgb,var(--mel-tone) 14%,transparent)}
+.roll-body .rbeat{stroke:color-mix(in srgb,var(--line) 60%,transparent)}
+.roll-body .rbar{stroke:var(--ink);stroke-opacity:.45}
+.rn rect{stroke-width:1.5}
+.rn text{font-size:10px;font-weight:700;dominant-baseline:central;pointer-events:none}
+.rn.f-tone rect{fill:var(--mel-tone);stroke:var(--mel-tone)}.rn.f-tone text{fill:#141414}
+.rn.f-ext rect{fill:color-mix(in srgb,var(--mel-tone) 35%,var(--surface));stroke:var(--mel-tone)}.rn.f-ext text{fill:var(--ink)}
+.rn.f-pass rect{fill:var(--surface);stroke:var(--ink);stroke-dasharray:2 2}.rn.f-pass text{fill:var(--ink)}
+.rn.f-chrom rect{fill:var(--surface);stroke:var(--accent);stroke-dasharray:5 2}.rn.f-chrom text{fill:var(--ink)}
+.rn.f-clash rect{fill:var(--mel-clash);stroke:var(--mel-clash)}.rn.f-clash text{fill:#fff}
+.rn.oor rect{fill:url(#none);fill:color-mix(in srgb,var(--muted) 25%,transparent);stroke:var(--muted);stroke-dasharray:3 3}
 .gridbar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:0 0 6px;font-size:calc(13px*var(--fs,1))}
 .gridbar[hidden]{display:none}
 .gridbar label{display:inline-flex;gap:6px;align-items:center}
@@ -1272,6 +1297,7 @@ body.dock-compact .dock #play.play-big{height:calc(38px*var(--fs,1));font-size:c
     <div class="example-note" id="exampleNote" hidden></div>
     <div class="gridbar" id="gridBar" hidden role="group" aria-label="Rhythm grid"></div>
     <div class="rows" id="rows"></div>
+    <div class="roll" id="roll" hidden role="region" aria-label="Piano roll"></div>
     <div class="melpad" id="melPad" hidden role="group" aria-label="Melody notes"></div>
     <div class="melpad arrwhy" id="arrWhy" hidden role="region" aria-label="Why this voicing" aria-live="polite"></div>
     <div class="melpad arrwhy" id="partWhy" hidden role="region" aria-label="What the piano is doing" aria-live="polite"></div>
@@ -1586,7 +1612,7 @@ const NUMS={I:0,II:2,III:4,IV:5,V:7,VI:9,VII:11};
 /* tables are plain objects, so keys that come from outside (chord text, share links, saved files) are only accepted when
    they are the table's own entries; "constructor" or "__proto__" never count */
 const ownKey=(o,k)=>typeof k==='string'&&Object.prototype.hasOwnProperty.call(o,k);
-const S={melGrid:'beat',zoomBars:0,centres:true,focus:false,hearIn:true,textSize:1,colors:{},keyHome:false,keyColors:null,colorBy:'kind',simple:false,simpleTheory:false,vocabFull:null,hearBack:1,foldForm:true,linkForm:true,arr:'strings',arrGroup:'',arrShow:false,arrSeed:0,arrMute:[false,false,false,false,false,false,false,false,false],showMel:false,melPlay:true,melPlace:'end',sym:'classic',labels:'both',pstyle:'block',gstyle:'strum1',genreVocab:false,instrument:'piano',tuning:'standard',quiz:false,drone:false,droneMode:'dorian',melText:'',melRate:1,surprise:30,showVL:false,genres:[],voicing:'smooth',vocab:['sus','add','seventh','symm','slash'],capo:0,tonic:7,mode:'ionian',meter:'4/4',tempo:88,level:1,mood:'uplift',bars:4,rhythm:'bar',lock:false,loop:true,click:false};
+const S={melGrid:'beat',zoomBars:0,melView:'lane',rollSnap:true,centres:true,focus:false,hearIn:true,textSize:1,colors:{},keyHome:false,keyColors:null,colorBy:'kind',simple:false,simpleTheory:false,vocabFull:null,hearBack:1,foldForm:true,linkForm:true,arr:'strings',arrGroup:'',arrShow:false,arrSeed:0,arrMute:[false,false,false,false,false,false,false,false,false],showMel:false,melPlay:true,melPlace:'end',sym:'classic',labels:'both',pstyle:'block',gstyle:'strum1',genreVocab:false,instrument:'piano',tuning:'standard',quiz:false,drone:false,droneMode:'dorian',melText:'',melRate:1,surprise:30,showVL:false,genres:[],voicing:'smooth',vocab:['sus','add','seventh','symm','slash'],capo:0,tonic:7,mode:'ionian',meter:'4/4',tempo:88,level:1,mood:'uplift',bars:4,rhythm:'bar',lock:false,loop:true,click:false};
 let chords=[], sel=null, hist=[];
 /* the melody: one entry per beat of the chart, by absolute beat. A MIDI note number starts a note, -1 holds the note
    before it, null is a rest. It is independent of the chords, so moving a chord changes the harmony under the tune.
@@ -3194,7 +3220,7 @@ function renderChart(){
     html+=U>1?`<div class="cgrid" style="grid-column:1 / span ${rowBeats};grid-row:1;grid-template-columns:repeat(${rowBeats*U},minmax(0,1fr))">${slots}</div>`:slots;
     /* the "+ Add chord" tile sits after the last chord, in the last row if there is room */
     if(row===rowList[rowList.length-1]){ const used=Math.ceil(Math.min(total,r1)-r0-1e-9); if(rowBeats-used>=1) html+=addTile(used+1,Math.min(L,rowBeats-used)); else tileNewRow=true; }
-    if(S.showMel) html+=gridOn?gridLaneHTML(r0,Math.min(r1,total),starts,mrow):melLaneHTML(r0,Math.min(r1,total),starts,mrow,ar&&arrTag(ar,ar.mel),tuneOor);
+    if(S.showMel&&!rollOn()) html+=gridOn?gridLaneHTML(r0,Math.min(r1,total),starts,mrow):melLaneHTML(r0,Math.min(r1,total),starts,mrow,ar&&arrTag(ar,ar.mel),tuneOor);
     if(ar) html+=arrLanesHTML(ar,r0,Math.min(r1,total));
     if(pp) html+=partLanesHTML(pp,r0,Math.min(r1,total),prow);
     html+='</div>';
@@ -3420,7 +3446,7 @@ function renderLaneRead(){ const el=$('#melToLaneRead'); if(!el) return; const p
 /* ============ block lane ============ */
 /* On a finer grid, or when the tune has finer notes, the lane is a row of slots with each note as a block across them, placed by
    ticks, so a note off the chosen grid still shows where it is. The Quarters lane stays for tunes on whole and half beats. */
-const gridLaneOn=()=>!!S.showMel&&chords.length>0&&(S.melGrid!=='beat'||tuneFine());
+const gridLaneOn=()=>!!S.showMel&&!rollOn()&&chords.length>0&&(S.melGrid!=='beat'||tuneFine());
 let gridSel=null; /* {t}: the slot or note the cursor is on */
 const slotMin=()=>window.innerWidth<640?24:18;
 /* the lane is sized for the shorter of a slot and the shortest note, so a fine note on a coarse grid can still be tapped */
@@ -3434,7 +3460,39 @@ function gridCursor(){ if(gridLaneOn()){ if(melSel){ gridSel={t:melSel.b*TICKS};
 function renderGridBar(){
   const el=$('#gridBar'); el.hidden=!S.showMel; if(!S.showMel) return; const e=den()===8, names=e?['8ths','16ths','Triplets','32nds']:['Quarters','8ths','Triplets','16ths'];
   el.innerHTML=`<label>Grid <select id="gridSize">${['beat','2','3','4'].map((v,i)=>`<option value="${v}"${S.melGrid===v?' selected':''}>${names[i]}</option>`).join('')}</select></label>
-    <label>Zoom <select id="gridZoom">${[[0,'All bars'],[4,'4 bars'],[2,'2 bars'],[1,'1 bar']].map(([v,l])=>`<option value="${v}"${S.zoomBars===v?' selected':''}>${l}</option>`).join('')}</select></label>`;
+    <label>Zoom <select id="gridZoom">${[[0,'All bars'],[4,'4 bars'],[2,'2 bars'],[1,'1 bar']].map(([v,l])=>`<option value="${v}"${S.zoomBars===v?' selected':''}>${l}</option>`).join('')}</select></label>${S.simple?'':`
+    <label>Melody <select id="melView"><option value="lane"${S.melView==='lane'?' selected':''}>Lane</option><option value="roll"${S.melView==='roll'?' selected':''}>Piano roll</option></select></label>`}`;
+}
+/* ---- piano roll: a second view of the tune in the full view; geometry is pure so it can be tested without drawing ---- */
+const rollOn=()=>!!S.showMel&&!S.simple&&S.melView==='roll';
+let rollScale=1;
+function rollRange(notes){ if(!notes.length) return {lo:60,hi:84}; let lo=Math.min(...notes.map(n=>n.m))-3, hi=Math.max(...notes.map(n=>n.m))+3;
+  if(hi-lo<24) hi=lo+24; /* short tunes get two octaves upward from just under their lowest note */
+  if(lo<21){ hi+=21-lo; lo=21; } if(hi>108){ lo-=hi-108; hi=108; } return {lo:Math.max(21,lo),hi:Math.min(108,hi)}; }
+function rollGeom(){ const {lo,hi}=rollRange(tune), L=barLen(), keyW=56, coarse=matchMedia('(pointer:coarse)').matches, rowH=coarse?28:16,
+    end=Math.max(chartTicks(),...tune.map(n=>n.t+n.d),L*TICKS), ticks=Math.ceil(end/(L*TICKS))*L*TICKS, w=($('#roll')?.clientWidth||760)-keyW;
+  const px=S.zoomBars?w/(S.zoomBars*L*TICKS):40/TICKS*rollScale; return {lo,hi,ticks,px,rowH,keyW,laneH:40}; }
+const rollXY=(t,m,g)=>({x:t*g.px,y:(g.hi-m)*g.rowH}), rollTM=(x,y,g)=>({t:Math.floor(x/g.px+1e-6),m:g.hi-Math.floor(y/g.rowH+1e-6)});
+function renderRoll(){
+  const el=$('#roll'); el.hidden=!rollOn(); if(el.hidden){ el.innerHTML=''; return; }
+  const g=rollGeom(), L=barLen(), st=startTicks(), W=g.ticks*g.px, H=(g.hi-g.lo+1)*g.rowH, rows=[]; for(let m=g.hi;m>=g.lo;m--) rows.push(m);
+  const k0=keyAt(0), inSc=(k,pc)=>inKey(k,()=>scaleSet().has(pc)), nm=(k,m)=>inKey(k,()=>prettyNote(spell(mod(m))));
+  let body='', strip='', keys='';
+  /* shading and guide rows follow the key and the tones of each chord's span */
+  chords.forEach((c,i)=>{ const x=st[i]*g.px, w=cTicks(c)*g.px, k=keyAt(i), tones=real(c)?pcsOf(c):[];
+    rows.forEach(m=>{ const y=(g.hi-m)*g.rowH; if(!inSc(k,mod(m))) body+=`<rect class="ro" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; if(tones.includes(mod(m))) body+=`<rect class="rg" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; });
+    const lab=!real(c)?'–':S.labels==='names'||S.labels==='both'?chordName(c):topLabel(c);
+    strip+=`<div class="rc k-${analyze(c).kind}" style="left:${x}px;width:${w}px" title="${esc(chordName(c))}">${esc(lab)}</div>`; });
+  for(let t=0;t<=g.ticks;t+=TICKS){ const bar=!(t%(L*TICKS)); body+=`<line class="${bar?'rbar':'rbeat'}" x1="${t*g.px}" x2="${t*g.px}" y1="0" y2="${H}"/>`; if(bar&&t<g.ticks) strip+=`<span class="rbn" style="left:${t*g.px}px">${t/TICKS/L+1}</span>`; }
+  rows.forEach(m=>{ const out=!inSc(k0,mod(m)); keys+=`<div class="rk${out?' out':''}${mod(m)===0?' c':''}" data-m="${m}" style="height:${g.rowH}px"><b>${esc(nm(k0,m))}${mod(m)===0?Math.floor(m/12)-1:''}</b><span>${inKey(k0,()=>degOf(m))}</span></div>`; });
+  const T=chartTicks();
+  tune.forEach((n,i)=>{ const p=rollXY(n.t,n.m,g), w=n.d*g.px, b=n.t/TICKS, ci=n.t<T?chordIdxAt(b):-1, oor=n.t>=T;
+    const f=oor?'':noteFit(n.m,ci,b,n.d), name=nm(keyAt(Math.max(ci,0)),n.m), car=ci>=0&&carries(ci,n.m);
+    const label=`Bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${name}${oor?' (past the end of the chart)':` (${NOTE_FIT[f]}${car?', carried by this chord':''})`}`;
+    body+=`<g class="rn${oor?' oor':' f-'+f}" data-ri="${i}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><rect x="${p.x}" y="${p.y}" width="${w}" height="${g.rowH}" rx="3"/><text x="${p.x+3}" y="${p.y+g.rowH/2}">${oor?'':fitLetter[f]}${w>=26?' '+esc(name):''}</text></g>`; });
+  el.innerHTML=`<div class="roll-scroll" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
+    <div class="roll-corner"></div><div class="roll-strip" style="height:${g.laneH}px">${strip}</div>
+    <div class="roll-keys">${keys}</div><svg class="roll-body" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg></div></div>`;
 }
 function gridLaneHTML(r0,r1,starts,row){
   const tk=(r1-r0)*TICKS, s=slotTicks(), L=barLen(), t0=r0*TICKS, say={4:['','e','&','a'],3:['','trip','let'],2:['','&'],1:['']}[TICKS/s]; let h='';
@@ -4501,7 +4559,7 @@ function renderFinder(){
   h+=`</div></div>`;
   el.innerHTML=h; el._res=res;
 }
-function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); renderTension(); if(melSel){ const tot=(chartTicks()/TICKS); if(!S.showMel||!tot) melSel=null; else { const b=Math.min(melSel.b,tot-1); melSel={a:Math.min(melSel.a,tot-1),b,h:melSplit(b)?melSel.h||0:0}; } } renderGridBar(); renderChart(); renderLaneRead(); renderFormBar(); renderBreak(); renderArrBar(); renderMelPad(); renderArrWhy(); renderPartWhy(); renderVLX(); renderDetail(); renderSubs(); renderPalette(); renderFinder(); renderDoor(); renderIdeas(); renderNext(); const pt=serialize(); $('#prog').value=pt; $('#prog').rows=Math.min(14,Math.max(3,pt.split('\n').length+1)); renderLive(); resyncPlay(); }
+function renderAll(){ PLAN=null; guitarPlan.cache=null; renderControls(); renderTension(); if(melSel){ const tot=(chartTicks()/TICKS); if(!S.showMel||!tot) melSel=null; else { const b=Math.min(melSel.b,tot-1); melSel={a:Math.min(melSel.a,tot-1),b,h:melSplit(b)?melSel.h||0:0}; } } renderGridBar(); renderChart(); renderRoll(); renderLaneRead(); renderFormBar(); renderBreak(); renderArrBar(); renderMelPad(); renderArrWhy(); renderPartWhy(); renderVLX(); renderDetail(); renderSubs(); renderPalette(); renderFinder(); renderDoor(); renderIdeas(); renderNext(); const pt=serialize(); $('#prog').value=pt; $('#prog').rows=Math.min(14,Math.max(3,pt.split('\n').length+1)); renderLive(); resyncPlay(); }
 
 /* ============ front door ============ */
 /* a fresh visit opens on an example with some colour in it, and the Create panel opens on "I have chords" */
@@ -5498,7 +5556,7 @@ let LIB={version:1,items:[]}, libCurrent=null;
 /* ============ untrusted state: one gate for settings and chords from saves, library files and share links ============ */
 const isBool=v=>typeof v==='boolean';
 const SANE={textSize:v=>TEXT_SIZES.some(t=>t.v===v), colors:v=>!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.entries(v).every(([k,x])=>ownKey(DEF_COLORS,k)&&HEX_RE.test(x)), keyHome:v=>typeof v==='boolean', keyColors:v=>v===null||Array.isArray(v)&&v.length===12&&v.every(x=>HEX_RE.test(x)), colorBy:v=>v==='kind'||v==='job', simple:v=>typeof v==='boolean', simpleTheory:v=>typeof v==='boolean', vocabFull:v=>v===null||Array.isArray(v)&&v.length<=20&&v.every(f=>FAMS.some(x=>x.id===f)), hearBack:v=>[1,2,4].includes(v), tonic:v=>Number.isInteger(v)&&v>=0&&v<12, mode:v=>ownKey(MODES,v), meter:v=>ownKey(METERS,v), tempo:v=>Number.isFinite(+v)&&+v>0&&v!==''&&v!==null&&typeof v!=='boolean',
-  melGrid:v=>ownKey(GRID_TICKS,v), zoomBars:v=>[0,4,2,1].includes(v), centres:isBool, focus:isBool, hearIn:isBool, voicing:v=>v==='smooth'||v==='fixed', sym:v=>ownKey(SYM_STYLES,v), melPlace:v=>ownKey(MEL_PLACES,v), showMel:isBool, melPlay:isBool, foldForm:isBool, linkForm:isBool, arr:v=>ownKey(ARR_STYLES,v), arrGroup:v=>v===''||ownKey(ARR_GROUPS,v), arrShow:isBool, arrSeed:v=>Number.isInteger(v)&&v>=0&&v<1000, arrMute:v=>Array.isArray(v)&&v.length>=5&&v.length<=9&&v.every(isBool), labels:v=>ownKey(LABEL_MODES,v), capo:v=>Number.isInteger(v)&&v>=0&&v<=7, tuning:v=>ownKey(TUNINGS,v), instrument:v=>v==='piano'||v==='guitar',
+  melGrid:v=>ownKey(GRID_TICKS,v), zoomBars:v=>[0,4,2,1].includes(v), melView:v=>v==='lane'||v==='roll', rollSnap:isBool, centres:isBool, focus:isBool, hearIn:isBool, voicing:v=>v==='smooth'||v==='fixed', sym:v=>ownKey(SYM_STYLES,v), melPlace:v=>ownKey(MEL_PLACES,v), showMel:isBool, melPlay:isBool, foldForm:isBool, linkForm:isBool, arr:v=>ownKey(ARR_STYLES,v), arrGroup:v=>v===''||ownKey(ARR_GROUPS,v), arrShow:isBool, arrSeed:v=>Number.isInteger(v)&&v>=0&&v<1000, arrMute:v=>Array.isArray(v)&&v.length>=5&&v.length<=9&&v.every(isBool), labels:v=>ownKey(LABEL_MODES,v), capo:v=>Number.isInteger(v)&&v>=0&&v<=7, tuning:v=>ownKey(TUNINGS,v), instrument:v=>v==='piano'||v==='guitar',
   pstyle:v=>ownKey(PIANO_STYLES,v), gstyle:v=>ownKey(GUITAR_STYLES,v), mood:v=>v===''||MOODS.some(m=>m.id===v),
   genres:v=>Array.isArray(v)&&v.length<=20&&v.every(g=>GENRES.some(x=>x.id===g)), vocab:v=>Array.isArray(v)&&v.length<=20&&v.every(f=>FAMS.some(x=>x.id===f)),
   bars:v=>[4,8,12,16].includes(v), rhythm:v=>['bar','half','mixed','slow'].includes(v), level:v=>[0,1,2].includes(v), surprise:v=>Number.isFinite(v)&&v>=0&&v<=100,
@@ -6049,7 +6107,7 @@ function boot(){
     if(partAt!=null&&e.target.closest('.pcell')){ partAt=null; renderPartWhy(); renderChart(); } });
   $('#rows').addEventListener('click',e=>{ const c=e.target.closest('.slot[data-id]'), m=e.target.closest('[data-mb]'), g=e.target.closest('[data-gt],[data-gn]');
     if(c){ const i=chords.findIndex(x=>x.id===c.dataset.id); if(i>=0) laneBar=chordStarts()[i]; } else if(m) laneBar=+m.dataset.mb; else if(g) laneBar=Math.floor(+(g.dataset.gn??g.dataset.gt)/TICKS); else return; setTimeout(()=>{ laneTok=laneNow(); renderLaneRead(); }); },true);
-  $('#gridBar').addEventListener('change',e=>{ if(e.target.id==='gridSize') S.melGrid=e.target.value; else if(e.target.id==='gridZoom') S.zoomBars=+e.target.value; else return; renderAll(); save(); document.querySelector('.slot.sel')?.scrollIntoView({block:'nearest'}); });
+  $('#gridBar').addEventListener('change',e=>{ if(e.target.id==='gridSize') S.melGrid=e.target.value; else if(e.target.id==='gridZoom') S.zoomBars=+e.target.value; else if(e.target.id==='melView') S.melView=e.target.value; else return; renderAll(); save(); document.querySelector('.slot.sel')?.scrollIntoView({block:'nearest'}); });
   $('#rows').addEventListener('click',e=>{ const g=e.target.closest('[data-gt],[data-gn]'); if(!g) return; e.stopPropagation(); const t=+(g.dataset.gn??g.dataset.gt), n=gridNote(t); gridSel={t}; renderChart(); renderMelPad(); gridFocus(); if(n) playMelNote(n.m,Math.floor(t/TICKS)); },true);
   $('#rows').addEventListener('keydown',e=>{ const g=e.target.closest('[data-gt],[data-gn]'); if(!g||e.metaKey||e.ctrlKey) return; e.stopPropagation(); gridSel={t:+(g.dataset.gn??g.dataset.gt)}; const t=gridSel.t, key=e.key, n=gridNote(t);
     if(/^[a-gA-G]$/.test(key)){ e.preventDefault(); return gridPut(t,melOctave(pcOf(key.toUpperCase()),Math.floor(t/TICKS))); }
@@ -6231,7 +6289,7 @@ function transpose(n){
 function vocabName(){ const vk=[...S.vocab].sort().join(); const p=Object.keys(PRESETS).find(k=>[...PRESETS[k]].sort().join()===vk); return p?'Chords allowed: '+p:'Chords allowed: '+['triads',...FAMS.filter(f=>!f.fixed&&famOn(f.id)).map(f=>f.name)].join(', '); }
 function undo(){ const s=hist.pop(); if(!s) return; syncedTop=hist[hist.length-1]??null; restoreSnap(s); }
 /* which view you're in isn't an edit, so undo leaves it (and the chord families it set) as they are */
-const VIEW_KEYS=['melGrid','zoomBars','centres','focus','hearIn','textSize','simple','simpleTheory','vocab','vocabFull','colorBy','colors','keyHome','keyColors'];
+const VIEW_KEYS=['melGrid','zoomBars','melView','rollSnap','centres','focus','hearIn','textSize','simple','simpleTheory','vocab','vocabFull','colorBy','colors','keyHome','keyColors'];
 function restoreSnap(s){ const d=JSON.parse(s), keep=Object.fromEntries(VIEW_KEYS.map(k=>[k,S[k]])); Object.assign(S,d.S,keep); setTuning(S.tuning); chords=d.chords; sel=d.sel; loadTune(d); commit(); }
 /* an Undo offered in a toast reverts that action, even if other edits happened since: it restores the snapshot taken just before it */
 function undoTo(snap){ return ()=>{ const i=hist.lastIndexOf(snap); if(i>=0) hist.length=i; syncedTop=hist[hist.length-1]??null; restoreSnap(snap); }; }

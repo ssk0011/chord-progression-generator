@@ -2284,6 +2284,37 @@ async function rollSuite() {
   await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 60 }, { t: 12, d: 12, m: 63 }, { t: 24, d: 12, m: 66 }, { t: 48, d: 12, m: 71 }]; commit(); });
   { const a = await page.evaluate(() => tuneDegrees()); await page.evaluate(() => transpose(3)); const b = await page.evaluate(() => tuneDegrees());
     check('degrees: the same tune in two keys gives the same degrees', JSON.stringify(a) === '["1","♭3","♭5","7"]' && JSON.stringify(a) === JSON.stringify(b), JSON.stringify([a, b])); }
+  // Task 3: the read-only roll
+  const roll = () => page.evaluate(() => { S.showMel = true; S.simple = false; S.melView = 'roll'; document.body.classList.remove('simple'); commit(); });
+  await load('C | G', 0);
+  await page.evaluate(() => { S.showMel = true; S.melView = 'lane'; commit(); });
+  check('roll: the switch shows in the full view', await page.evaluate(() => !!document.querySelector('#gridBar #melView')));
+  await page.evaluate(() => setSimple(true));
+  check('roll: no switch in Simple view', await page.evaluate(() => !document.querySelector('#gridBar #melView')));
+  await page.evaluate(() => { S.melView = 'roll'; commit(); });
+  check('roll: Simple view keeps the lane even when melView is roll', await page.evaluate(() => !rollOn() && document.querySelector('#roll').hidden && !!document.querySelector('#rows .mcell')));
+  await page.evaluate(() => setSimple(false));
+  await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 60 }, { t: 18, d: 6, m: 64 }]; }); await roll();
+  check('roll: shows in the full view', await page.evaluate(() => rollOn() && !document.querySelector('#roll').hidden));
+  check('roll: one note per tune note, at the right place', await page.evaluate(() => { const g = rollGeom(), r = [...document.querySelectorAll('#roll .rn rect')];
+    return r.length === 2 && tune.every((n, i) => { const p = rollXY(n.t, n.m, g); return Math.abs(+r[i].getAttribute('x') - p.x) < .5 && Math.abs(+r[i].getAttribute('width') - n.d * g.px) < .5 && Math.abs(+r[i].getAttribute('y') - p.y) < .5; }); }));
+  check('roll: rows fit the tune', JSON.stringify(await page.evaluate(() => [rollRange(tune), rollRange([])])) === '[{"lo":57,"hi":81},{"lo":60,"hi":84}]');
+  check('roll: rollTM inverts rollXY', await page.evaluate(() => { const g = rollGeom(); for (let k = 0; k < 20; k++) { const t = Math.floor(Math.random() * g.ticks), m = g.lo + Math.floor(Math.random() * (g.hi - g.lo + 1)), p = rollXY(t, m, g), q = rollTM(p.x, p.y, g); if (q.t !== t || q.m !== m) return false; } return true; }));
+  check('roll: fit is labelled, not only coloured', await page.evaluate(() => [...document.querySelectorAll('#roll .rn')].every(n => /[TEPC!]/.test(n.querySelector('text')?.textContent || '') && /chord tone|extension|passing|chromatic|clash/.test(n.getAttribute('aria-label')))));
+  check('roll: the keyboard names each row and its degree', await page.evaluate(() => { const k = document.querySelector('#roll .rk[data-m="64"]'); return !!k && /E/.test(k.textContent) && /3/.test(k.textContent); }));
+  check('roll: in-key rows are shaded', await page.evaluate(() => document.querySelector('#roll .rk[data-m="61"]').classList.contains('out') && !document.querySelector('#roll .rk[data-m="62"]').classList.contains('out')));
+  check('roll: chord tones are guide rows', await page.evaluate(() => document.querySelectorAll('#roll .rg').length > 0));
+  check('roll: the chord strip shows each chord', (await page.evaluate(() => [...document.querySelectorAll('#roll .rc')].map(e => e.textContent.trim()).join(' '))) === 'C G');
+  check('roll: the lane row is gone while the roll shows', await page.evaluate(() => !document.querySelector('#rows .mcell, #rows .glane')));
+  page.errors.length = 0;
+  await page.evaluate(() => { generate(); });
+  await page.evaluate(() => { S.showMel = true; S.melView = 'roll'; commit(); tune = [{ t: 0, d: 12, m: 60 }]; commit(); undo(); S.tonic = 7; commit(); });
+  check('roll: redraws after Generate, undo and a key change', page.errors.length === 0 && await page.evaluate(() => !document.querySelector('#roll').hidden && document.querySelectorAll('#roll .rc').length === chords.length), page.errors.join(' | '));
+  await load('C', 0); await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 60 }, { t: 60, d: 12, m: 62 }]; }); await roll();
+  check('roll: notes past the chart show as out of range', await page.evaluate(() => document.querySelectorAll('#roll .rn.oor').length === 1 && tune.length === 2));
+  await page.evaluate(() => { S.melView = 'lane'; commit(); });
+  check('roll: lane comes back when switched to the lane', await page.evaluate(() => document.querySelector('#roll').hidden && !!document.querySelector('#rows .mcell, #rows .glane')));
+  check('roll: an old save opens on the lane', await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('changes-v1') || '{}'); delete v.S?.melView; return SANE.melView('lane') && !SANE.melView('x') && S.melView === 'lane'; }));
   await ctx.close();
 }
 
