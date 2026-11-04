@@ -3547,6 +3547,74 @@ function mpClose(src,work){ const A=mpBars(src), B=mpBars(work), n=Math.max(A.le
     if(layers[top]>=.8&&layers[top]-mean>=.25){ let b0=-1,b1=-1,s=-1; bars[top].forEach((v,i)=>{ if(v!=null&&v>=.8){ if(s<0) s=i; if(b1<0||i-s+1>b1-b0+1) { b0=s; b1=i; } } else s=-1; }); giveaway={layer:top,b0,b1}; } }
   return {layers,bars,giveaway}; }
 const mpWord=v=>v>=.85?'very close':v>=.6?'close':v>=.35?'some way off':'far';
+/* paths: ways to move a stretch [t0,t1) of the tune away from the original. run(ctx,v) builds a whole new tune and leaves
+   every note outside the stretch alone; ctx={tune,t0,t1,L,style,k} with the style read from the original */
+const mpNm=m=>prettyNote(spell(mod(m)))+(Math.floor(m/12)-1);
+function mpWhere(ctx,a,b){ const BT=ctx.L*TICKS, x=Math.floor((ctx.t0+a)/BT)+1, y=Math.floor((ctx.t0+Math.max(a,b-1))/BT)+1; return x===y?`Bar ${x}`:`Bars ${x}–${y}`; }
+/* the stretch's notes relative to t0: a note held in from before stays put (held); the rest (own) can change */
+function mpSpan(ctx){ const rel=sliceNotes(ctx.tune,ctx.t0,ctx.t1), held=ctx.tune.some(n=>n.t<ctx.t0&&n.t+n.d>ctx.t0)?rel[0]:null; return {len:ctx.t1-ctx.t0,held,own:rel.filter(n=>n!==held)}; }
+/* the whole tune with rel put in the stretch, as baPutBar does it; a note held across an edge is one note again when both parts are still there */
+function mpPut(ctx,rel){ const {t0,t1}=ctx, keep=tune; let out;
+  try{ tune=ctx.tune; tuneClear(t0,t1); tuneAdd(t0,rel); out=tune; } finally{ tune=keep; }
+  ctx.tune.forEach(n=>[t0,t1].forEach(b=>{ if(!(n.t<b&&n.t+n.d>b)) return; const a=out.find(x=>x.t===n.t&&x.m===n.m&&x.t+x.d===b), c=out.find(x=>x.t===b&&x.m===n.m);
+    if(a&&c) out=out.filter(x=>x!==a&&x!==c).concat({...a,d:a.d+c.d}).sort((p,q)=>p.t-q.t); }));
+  return out; }
+/* the stretch's own notes split into phrases, with idx pointing into own */
+const mpOwnPhrases=(ctx,own)=>mpPhrases(own.map(n=>({...n,t:n.t+ctx.t0})),ctx.L);
+const MP_SHIFT=[[6,'half a beat later'],[-6,'half a beat earlier'],[12,'a beat later'],[-12,'a beat earlier']];
+/* neighbours whose lengths can swap so that a different note sounds on the strong beat between them: [k, the strong beat (relative)] */
+function mpLandings(ctx){ const {own}=mpSpan(ctx), out=[];
+  own.forEach((a,k)=>{ const b=own[k+1]; if(!b||b.t!==a.t+a.d||a.d===b.d||a.m===b.m) return; const lo=ctx.t0+a.t+Math.min(a.d,b.d), hi=ctx.t0+a.t+Math.max(a.d,b.d);
+    for(let bt=Math.ceil(lo/TICKS);bt*TICKS<hi;bt++) if(strongBeat(bt)){ out.push([k,bt*TICKS-ctx.t0]); return; } });
+  return out; }
+const MP_PATHS=[
+  {id:'shift',kind:'rhythm',name:'Shift it along',keeps:['shape','steps','harmony'],changes:['rhythm'],variants:()=>MP_SHIFT.length,
+    run(ctx,v){ const [by,say]=MP_SHIFT[v], {len,held,own}=mpSpan(ctx); if(!own.length||by<0&&own[0].t+by<(held?held.d:0)) return null;
+      const moved=sliceNotes(own.map(n=>({...n,t:n.t+by})),0,len); if(!moved.length) return null;
+      const lost=own.length-moved.length, cut=!lost&&moved.at(-1).d<own.at(-1).d;
+      return {notes:mpPut(ctx,[...(held?[{...held,d:Math.min(held.d,moved[0].t)}]:[]),...moved]),
+        words:`${mpWhere(ctx,own[0].t,own.at(-1).t+1)}: the notes from ${mpNm(own[0].m)} start ${say}${lost?`, and the last ${lost>1?lost+' notes drop':'note drops'} off`:cut?`, and ${mpNm(moved.at(-1).m)} is cut short`:''}.`}; }},
+  {id:'resplit',kind:'rhythm',name:'Join or split repeated notes',keeps:['shape','harmony'],changes:['rhythm'],variants:()=>2,
+    run(ctx,v){ const {held,own}=mpSpan(ctx), h=held?[held]:[], next=k=>own[k+1]&&own[k+1].m===own[k].m&&own[k+1].t===own[k].t+own[k].d;
+      if(!v){ const i=own.findIndex((n,k)=>next(k)); if(i<0) return null; let j=i; while(next(j)) j++;
+        const one={...own[i],d:own[j].t+own[j].d-own[i].t};
+        return {notes:mpPut(ctx,[...h,...own.slice(0,i),one,...own.slice(j+1)]),words:`${mpWhere(ctx,own[i].t,one.t+one.d)}: the ${j-i+1} repeated ${mpNm(one.m)}s become one long ${mpNm(one.m)}.`}; }
+      if(!own.length) return null; let i=0; own.forEach((n,k)=>{ if(n.d>own[i].d) i=k; }); const n=own[i], ls=[...ctx.style.lengths];
+      const a=ls.filter(x=>x<n.d&&ctx.style.lengths.has(n.d-x)).sort((x,y)=>Math.abs(x-n.d/2)-Math.abs(y-n.d/2)||y-x)[0]; if(a==null) return null;
+      return {notes:mpPut(ctx,[...h,...own.slice(0,i),{...n,d:a},{...n,t:n.t+a,d:n.d-a},...own.slice(i+1)]),words:`${mpWhere(ctx,n.t,n.t+n.d)}: the long ${mpNm(n.m)} is played twice, as two shorter ${mpNm(n.m)}s.`}; }},
+  {id:'landing',kind:'rhythm',name:'Move the landing note',keeps:['shape','steps','harmony'],changes:['rhythm','tension'],variants:ctx=>mpLandings(ctx).length,
+    run(ctx,v){ const p=mpLandings(ctx)[v]; if(!p) return null; const {held,own}=mpSpan(ctx), [k,s]=p, a=own[k], b=own[k+1], na={...a,d:b.d}, nb={...b,t:a.t+b.d,d:a.d}, on=s<na.t+na.d?na:nb;
+      return {notes:mpPut(ctx,[...(held?[held]:[]),...own.slice(0,k),na,nb,...own.slice(k+2)]),
+        words:`${mpWhere(ctx,s,s+1)}: ${mpNm(a.m)} and ${mpNm(b.m)} swap lengths, so ${mpNm(on.m)} sounds on beat ${(ctx.t0+s)%(ctx.L*TICKS)/TICKS+1}.`}; }},
+  {id:'motif',kind:'rhythm',name:'Change the opening’s speed',keeps:['shape','steps','harmony'],changes:['rhythm'],variants:ctx=>2*mpOwnPhrases(ctx,mpSpan(ctx).own).length,
+    run(ctx,v){ const {len,held,own}=mpSpan(ctx), phs=mpOwnPhrases(ctx,own), ph=phs[v>>1]; if(!ph) return null; const f=v%2?.5:2, BT=ctx.L*TICKS, bar=Math.floor(ph.t0/BT);
+      const ns=ph.idx.map(i=>own[i]), mo=ns.filter(n=>Math.floor((n.t+ctx.t0)/BT)===bar), m0=mo[0].t, span=mo.at(-1).t+mo.at(-1).d-m0, by=span*f-span;
+      const fast=mo.map(n=>({...n,t:m0+(n.t-m0)*f,d:n.d*f})); if(fast.some(n=>!Number.isInteger(n.t)||!ctx.style.lengths.has(n.d))) return null;
+      const rest=ns.slice(mo.length).map(n=>({...n,t:n.t+by})), room=phs[(v>>1)+1]?own[phs[(v>>1)+1].idx[0]].t:len, all=[...fast,...rest];
+      if(all.at(-1).t+all.at(-1).d>room) return null; const keep=own.filter(n=>!ns.includes(n));
+      return {notes:mpPut(ctx,[...(held?[held]:[]),...keep,...all].sort((p,q)=>p.t-q.t)),words:`${mpWhere(ctx,m0,m0+Math.max(span,span*f))}: the opening ${mo.length>1?mo.length+' notes':'note'} from ${mpNm(mo[0].m)} ${f>1?'play at half speed':'play twice as fast'}.`}; }},
+  {id:'phraselen',kind:'rhythm',name:'Make the phrase longer or shorter',keeps:['shape','steps','harmony'],changes:['rhythm'],variants:ctx=>2*mpOwnPhrases(ctx,mpSpan(ctx).own).length,
+    run(ctx,v){ const {len,held,own}=mpSpan(ctx), ph=mpOwnPhrases(ctx,own)[v>>1]; if(!ph) return null; const i=ph.idx.at(-1), n=own[i], d=n.d+(v%2?-TICKS:TICKS), room=own[i+1]?own[i+1].t:len;
+      if(d<=0||n.t+d>room) return null;
+      return {notes:mpPut(ctx,[...(held?[held]:[]),...own.slice(0,i),{...n,d},...own.slice(i+1)]),words:`${mpWhere(ctx,n.t,n.t+Math.max(d,n.d))}: ${mpNm(n.m)} at the end of the phrase is ${v%2?'cut a beat shorter':'held a beat longer'}.`}; }},
+];
+/* the Break away original as a chart mpAs can put in place (only the keys mpAs puts back) */
+const mpSrc=()=>({chords:BA.chords,tune:BA.tune,S:Object.fromEntries(MP_KEYS.map(k=>[k,BA.S[k]??S[k]]))});
+function mpCtx(t0,t1,src){ return {tune,t0,t1,L:barLen(),style:mpStyle(src),k:keyAt(Math.max(chordIdxAt(Math.floor(t0/TICKS)),0))}; }
+const mpKey=l=>JSON.stringify(l.map(n=>[n.t,n.d,n.m]));
+/* one variant of a path, if it is new, fits the original's style and moves at least one layer it changes further from the original */
+function mpTry(p,v,of,ctx,src,base){ const r=p.run(ctx,v); if(!r||mpKey(r.notes)===mpKey(tune)) return null;
+  const work={...mpChart(),tune:r.notes}; if(!mpAs(work,()=>mpFits(r.notes,ctx.style,ctx.L)).ok) return null;
+  const close=mpClose(src,work); if(!p.changes.some(k=>close.layers[k]!=null&&base.layers[k]!=null&&close.layers[k]<base.layers[k])) return null;
+  return {id:p.id,name:p.name,kind:p.kind,keeps:p.keeps,changes:p.changes,v,of,notes:r.notes,words:r.words,close}; }
+/* each path's first passing variant for the stretch, in MP_PATHS order; nothing when Break away is off */
+function mpPathsFor(t0,t1){ if(!BA) return []; const src=mpSrc(), ctx=mpCtx(t0,t1,src), base=mpClose(src,mpChart()), out=[];
+  MP_PATHS.forEach(p=>{ const of=p.variants(ctx); for(let v=0;v<of;v++){ const x=mpTry(p,v,of,ctx,src,base); if(x){ out.push(x); break; } } });
+  return out; }
+/* "Another one": the next passing variant after from, wrapping round once */
+function mpNext(id,t0,t1,from){ const p=MP_PATHS.find(x=>x.id===id); if(!BA||!p) return null; const src=mpSrc(), ctx=mpCtx(t0,t1,src), base=mpClose(src,mpChart()), of=p.variants(ctx);
+  for(let k=1;k<of;k++){ const x=mpTry(p,(from+k)%of,of,ctx,src,base); if(x) return x; }
+  return null; }
 /* ============ a tune from the Harmonize box ============ */
 /* it goes in from the bar in hand and replaces only the stretch it covers; the box says which bars before anything is written */
 let laneBar=null, laneTok=''; /* the beat last clicked in the chart, chord or note, until the selection moves on */

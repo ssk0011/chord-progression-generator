@@ -2328,6 +2328,29 @@ async function pathsSuite() {
   await page.reload();
   check('paths: old v2 record without kept still loads', await page.evaluate(() => JSON.stringify(BA.kept) === '[]' && BA.chords.length === 4 && BA.tune.length === 16 && baReport().total === 4));
   await page.evaluate(() => { BA = null; baStore(); });
+  // Task 4: the path engine and rhythm paths
+  const outside = async (name, t0, t1) => { await mpLoad(page, name); return page.evaluate(([t0, t1]) => { BA = null; baToggle(); const key = l => JSON.stringify(l.filter(n => n.t < t0 || n.t >= t1).map(({ t, d, m }) => [t, d, m]));
+    const items = mpPathsFor(t0, t1); return { n: items.length, ok: items.every(x => key(x.notes) === key(tune)), ids: items.map(x => x.id + x.v) }; }, [t0, t1]); };
+  const outs = [await outside('steps', 48, 96), await outside('sync', 48, 96), await outside('waltz', 72, 108), await outside('repeat', 48, 96), await outside('sync', 0, 192)];
+  check('paths: every path leaves notes outside the stretch alone', outs.every(o => o.ok) && outs.some(o => o.n > 0), JSON.stringify(outs));
+  await mpLoad(page, 'steps');
+  const lat = await page.evaluate(() => { BA = null; baToggle(); const keep = tune, later = baLater(0); tuneClear(0, 48); tuneAdd(0, later); const want = tune; tune = keep;
+    const got = MP_PATHS.find(p => p.id === 'shift').run({ tune, t0: 0, t1: 48, L: 4, style: mpStyle(mpChart()), k: keyAt(0) }, 2);
+    return [JSON.stringify(got && got.notes) === JSON.stringify(want), tune === keep, got && got.words]; });
+  check('paths: shift a beat later on one bar equals Start a beat later', lat[0] && lat[1] && /Bar 1/.test(lat[2]), JSON.stringify(lat));
+  const st8 = await page.evaluate(() => [mpPathsFor(48, 96), mpPathsFor(0, 192), mpPathsFor(0, 48)].flat().map(x => [x.id, x.notes.filter(n => n.d !== 12).length]));
+  check('paths: steps never gets 8ths', st8.every(([, k]) => k === 0), JSON.stringify(st8));
+  /* shift on steps moves notes across bar lines, so its shape bar by bar changes; waltz bar 3 is a shift that keeps every bar's shape */
+  await mpLoad(page, 'waltz');
+  const sh3 = await page.evaluate(() => { BA = null; baToggle(); const x = mpPathsFor(72, 108).find(p => p.id === 'shift'); return x && { v: x.v, of: x.of, layers: x.close.layers, words: x.words }; });
+  check('paths: shift lowers rhythm closeness and keeps shape', !!sh3 && sh3.layers.rhythm < 1 && sh3.layers.shape === 1 && sh3.of === 4, JSON.stringify(sh3));
+  await mpLoad(page, 'sync');
+  const nx = await page.evaluate(() => { BA = null; baToggle(); const first = mpPathsFor(0, 192).find(p => p.id === 'shift'), a = mpNext('shift', 0, 192, first.v), b = mpNext('shift', 0, 192, first.v);
+    const all = []; let v = first.v; for (let k = 0; k < 6; k++) { const x = mpNext('shift', 0, 192, v); if (!x) break; all.push(x.v); v = x.v; }
+    const keep = BA; BA = null; const off = mpPathsFor(0, 192).length; BA = keep;
+    return { first: first.v, a: a && a.v, same: JSON.stringify(a) === JSON.stringify(b), all, off }; });
+  check('paths: Another one wraps and repeats deterministically', nx.same && nx.a !== null && nx.a !== nx.first && nx.all.includes(nx.first) && nx.off === 0, JSON.stringify(nx));
+  await page.evaluate(() => { BA = null; baStore(); });
   check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
 }
