@@ -2315,6 +2315,61 @@ async function rollSuite() {
   await page.evaluate(() => { S.melView = 'lane'; commit(); });
   check('roll: lane comes back when switched to the lane', await page.evaluate(() => document.querySelector('#roll').hidden && !!document.querySelector('#rows .mcell, #rows .glane')));
   check('roll: an old save opens on the lane', await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('changes-v1') || '{}'); delete v.S?.melView; return SANE.melView('lane') && !SANE.melView('x') && S.melView === 'lane'; }));
+  // Task 4: editing, playhead, loop and redo
+  const at = (t, m) => page.evaluate(([t, m]) => { const g = rollGeom(), r = document.querySelector('#roll .roll-body').getBoundingClientRect(), p = rollXY(t, m, g); return { x: r.left + p.x, y: r.top + p.y + g.rowH / 2, px: g.px, rowH: g.rowH }; }, [t, m]);
+  const setRoll = async (txt, notes, grid = '2') => { await load(txt, 0); await page.evaluate(([n, gr]) => { tune = n; S.melGrid = gr; S.rollSnap = true; ROLL_MODE = 'draw'; S.showMel = true; S.melView = 'roll'; commit(); document.querySelector('#roll').scrollIntoView({ block: 'center' }); }, [notes, grid]); };
+  await setRoll('C | G', []);
+  check('roll: snap rounds to the grid', JSON.stringify(await page.evaluate(() => { const a = [rollSnapT(8), rollSnapT(4), rollSnapT(10), rollSnapT(10, true)]; S.rollSnap = false; a.push(rollSnapT(5)); S.rollSnap = true; return a; })) === '[6,6,12,6,5]');
+  await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 60 }]; commit(); });
+  check('roll: hit test finds body and end, with a wider end on touch', JSON.stringify(await page.evaluate(() => { const g = rollGeom(), y = rollXY(0, 60, g).y + g.rowH / 2, e = 12 * g.px;
+    const k = h => h.i != null ? h.part : 'empty'; return [k(rollHit(2, y, g, false)), k(rollHit(e - 2, y, g, false)), k(rollHit(e + 20, y, g, true)), k(rollHit(e + 20, y, g, false)), k(rollHit(2, y + 21, g, true)), k(rollHit(2, y + 21, g, false))]; })) === '["body","end","end","empty","body","empty"]');
+  await setRoll('C | G', []);
+  { const p = await at(7, 62); await page.mouse.click(p.x, p.y);
+    check('roll: drawing adds a note on the snapped tick', JSON.stringify(await page.evaluate(() => tune)) === '[{"t":6,"d":6,"m":62}]', JSON.stringify(await page.evaluate(() => tune))); }
+  await setRoll('C | G', [{ t: 0, d: 48, m: 60 }]);
+  await page.evaluate(() => { notePut(12, 6, 64); });
+  check('roll: drawing never overlaps', await page.evaluate(() => tune.every((n, i) => !tune[i + 1] || n.t + n.d <= tune[i + 1].t) && tune[0].t === 0 && tune[0].d === 12 && tune.some(n => n.t === 12 && n.m === 64)), JSON.stringify(await page.evaluate(() => tune)));
+  await setRoll('C | G', [{ t: 0, d: 3, m: 60 }], '4');
+  { const before = await page.evaluate(() => JSON.stringify(tune)), p = await at(1, 60); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + 1.3 * 3 * p.px, p.y, { steps: 4 }); await page.mouse.up();
+    check('roll: dragging a note to a new subdivision snaps', (await page.evaluate(() => JSON.stringify(tune))) === '[{"t":3,"d":3,"m":60}]', await page.evaluate(() => JSON.stringify(tune)));
+    await page.evaluate(() => undo());
+    check('roll: one gesture is one undo step', (await page.evaluate(() => JSON.stringify(tune))) === before);
+    await page.evaluate(() => redo());
+    check('roll: redo re-applies', (await page.evaluate(() => JSON.stringify(tune))) === '[{"t":3,"d":3,"m":60}]');
+    await page.evaluate(() => { undo(); pushHist(); notePut(24, 3, 62); commit(); redo(); });
+    check('roll: a new edit clears redo', (await page.evaluate(() => JSON.stringify(tune))) === '[{"t":0,"d":3,"m":60},{"t":24,"d":3,"m":62}]', await page.evaluate(() => JSON.stringify(tune)));
+    await page.evaluate(() => undo()); await page.keyboard.press('Control+Shift+Z');
+    check('roll: Ctrl+Shift+Z redoes', (await page.evaluate(() => tune.length)) === 2); }
+  await setRoll('C | G', [{ t: 42, d: 6, m: 60 }, { t: 48, d: 12, m: 62 }]);
+  await page.evaluate(() => noteMove(0, 6, 0));
+  check('roll: moving a note over the next one trims the next note', (await page.evaluate(() => JSON.stringify(tune))) === '[{"t":48,"d":6,"m":60},{"t":54,"d":6,"m":62}]', await page.evaluate(() => JSON.stringify(tune)));
+  await setRoll('C | G', [{ t: 0, d: 6, m: 100 }]);
+  check('roll: no zero-length notes, and pitch stops at 108', JSON.stringify(await page.evaluate(() => { noteSize(0, 0); noteMove(0, 0, 30); return tune; })) === '[{"t":0,"d":1,"m":108}]');
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60 }, { t: 12, d: 12, m: 62 }]);
+  { await page.evaluate(() => { ROLL_MODE = 'erase'; renderRoll(); }); const p = await at(3, 60); await page.mouse.click(p.x, p.y);
+    check('roll: erase removes one note', (await page.evaluate(() => JSON.stringify(tune))) === '[{"t":12,"d":12,"m":62}]'); }
+  check('roll: the toolbar has the three modes, snap, undo and redo', await page.evaluate(() => ['draw', 'select', 'erase'].every(m => document.querySelector(`#roll [data-rtool="${m}"]`)) && !!document.querySelector('#roll [data-rsnap]') && !!document.querySelector('#roll [data-rundo]') && !!document.querySelector('#roll [data-rredo]')));
+  await load('C', 0);
+  check('roll: split here splits the chord on an 8th', JSON.stringify(await page.evaluate(() => { splitChordAt(18); return chords.map(c => c.beats); })) === '[1.5,2.5]');
+  await setRoll('C G', []);
+  { const r = await page.evaluate(() => { const z = document.querySelector('#roll .rc .rz').getBoundingClientRect(); return { x: z.left + z.width / 2, y: z.top + z.height / 2, px: rollGeom().px }; });
+    await page.mouse.move(r.x, r.y); await page.mouse.down(); await page.mouse.move(r.x - 1.4 * 12 * r.px, r.y, { steps: 5 }); await page.mouse.up();
+    check('roll: a chord edge drag snaps on the roll', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats))) === '[2.5,4]', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats)))); }
+  await load('C | G | Am', 0);
+  { await page.evaluate(() => { S.tempo = 240; S.loop = true; window._played = []; window._ps = playStyled; playStyled = (c, ...a) => { window._played.push(chordName(c)); }; LOOP_SEL = { b0: 4, b1: 8 }; playChart(); });
+    await page.waitForTimeout(1500);
+    const pl = await page.evaluate(() => { stopAll(); LOOP_SEL = null; playStyled = window._ps; S.tempo = 88; return window._played; });
+    check('roll: a loop plays only its bars, again and again', pl.length >= 2 && pl.every(n => n === 'G'), JSON.stringify(pl)); }
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60 }]);
+  { await page.evaluate(() => { window._ps = playStyled; playStyled = () => {}; playChart(); }); await page.waitForTimeout(300);
+    const x1 = await page.evaluate(() => +document.querySelector('#roll .rhead')?.getAttribute('x1')); await page.waitForTimeout(400);
+    const x2 = await page.evaluate(() => +document.querySelector('#roll .rhead')?.getAttribute('x1')); await page.evaluate(() => { stopAll(); playStyled = window._ps; });
+    check('roll: the playhead moves while playing', x2 > x1 && x1 >= 0, `${x1} ${x2}`); }
+  { await setRoll('C | G', []); const r = await page.evaluate(() => { const s = document.querySelector('#roll .roll-strip').getBoundingClientRect(); return { x: s.left, y: s.top + 6, px: rollGeom().px }; });
+    await page.mouse.move(r.x + 2 * 12 * r.px, r.y); await page.mouse.down(); await page.mouse.move(r.x + 6 * 12 * r.px, r.y, { steps: 4 }); await page.mouse.up();
+    check('roll: dragging the ruler sets a loop on bar lines', JSON.stringify(await page.evaluate(() => LOOP_SEL)) === '{"b0":0,"b1":8}', JSON.stringify(await page.evaluate(() => LOOP_SEL)));
+    await page.mouse.dblclick(r.x + 3 * 12 * r.px, r.y);
+    check('roll: double-tapping the ruler clears the loop', (await page.evaluate(() => LOOP_SEL)) === null); }
   await ctx.close();
 }
 

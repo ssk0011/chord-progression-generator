@@ -925,6 +925,15 @@ select.btn{border-radius:var(--r-pill)}
 .rn.f-pass rect{fill:var(--surface);stroke:var(--ink);stroke-dasharray:2 2}.rn.f-pass text{fill:var(--ink)}
 .rn.f-chrom rect{fill:var(--surface);stroke:var(--accent);stroke-dasharray:5 2}.rn.f-chrom text{fill:var(--ink)}
 .rn.f-clash rect{fill:var(--mel-clash);stroke:var(--mel-clash)}.rn.f-clash text{fill:#fff}
+.rn.rsel rect{stroke:var(--ink);stroke-width:2.5}
+.roll-body .rcur{stroke:var(--accent);stroke-dasharray:2 3}
+.roll-body .rhead{stroke:var(--accent);stroke-width:2}
+.roll-body.m-erase{cursor:crosshair}
+.roll-strip .rc .rz{position:absolute;right:-1px;top:0;bottom:0;width:10px;cursor:ew-resize;touch-action:none}
+.roll-strip .rloop{position:absolute;top:0;height:12px;background:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:3px;pointer-events:none}
+.roll-strip{cursor:pointer;touch-action:none}
+.roll-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
+.roll-tools [aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .rn.oor rect{fill:url(#none);fill:color-mix(in srgb,var(--muted) 25%,transparent);stroke:var(--muted);stroke-dasharray:3 3}
 .gridbar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:0 0 6px;font-size:calc(13px*var(--fs,1))}
 .gridbar[hidden]{display:none}
@@ -2476,6 +2485,8 @@ function pianoVoicing(c){
 let actx=null, master=null, session=null, timers=[], playing=false;
 /* GATE: while a pass is rescheduled from the middle, notes due before this audio time are left out (see resyncPlay) */
 let GATE=0;
+/* STOPAT: while a looped stretch is scheduled, notes due at or after this audio time are left out */
+let STOPAT=Infinity;
 /* iPhone and iPad: Safari treats Web Audio as "ambient" sound, so the ring/silent switch mutes it. The page's sound is
    marked as media playback instead: through the audio session API where Safari has it (iOS 17+), otherwise by keeping
    a silent media element playing, which moves the page into the playback category. The audio engine is also resumed
@@ -2502,7 +2513,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&silentEl&
 function ac(){ audioUnlock(); if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)(); const comp=actx.createDynamicsCompressor(); master=actx.createGain(); master.gain.value=.7; master.connect(comp).connect(actx.destination); audioUnlock(); } return actx; }
 function newSession(){ const a=ac(); if(session){ try{ session.gain.setTargetAtTime(0,a.currentTime,.03); const s=session; setTimeout(()=>s.disconnect(),300);}catch(e){} } session=a.createGain(); session.connect(master); return session; }
 function tone(m,t,dur,vel,out){
-  if(t<GATE) return;
+  if(t<GATE||t>=STOPAT) return;
   const a=actx, f=440*Math.pow(2,(m-69)/12);
   const o1=a.createOscillator(), o2=a.createOscillator(), g=a.createGain(), g2=a.createGain(), lp=a.createBiquadFilter();
   o1.type='triangle'; o1.frequency.value=f; o2.type='sine'; o2.frequency.value=f*2; g2.gain.value=.22;
@@ -2571,7 +2582,7 @@ function strum(c,t,dur,out,v){ if(!real(c)) return; v=v||pianoVoicing(c);
   tone(v.bass,t,dur,.2,out); v.rh.forEach((m,i)=>tone(m,t+.018*(i+1),dur-.018*(i+1),.13,out)); }
 /* a plucked-string tone: bright attack that darkens and decays like a guitar string, low notes ringing longer */
 function pluck(m,t,dur,vel,out){
-  if(t<GATE) return;
+  if(t<GATE||t>=STOPAT) return;
   const a=actx, f=440*Math.pow(2,(m-69)/12), o1=a.createOscillator(), o2=a.createOscillator(), g=a.createGain(), g2=a.createGain(), lp=a.createBiquadFilter();
   o1.type='sawtooth'; o1.frequency.value=f; o2.type='triangle'; o2.frequency.value=f*1.002; g2.gain.value=.6;
   const ring=Math.min(3.2,Math.max(.8,dur+.4))*(m<52?1.25:1);
@@ -2579,7 +2590,7 @@ function pluck(m,t,dur,vel,out){
   g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vel,t+.004); g.gain.exponentialRampToValueAtTime(vel*.35,t+.18); g.gain.exponentialRampToValueAtTime(.0001,t+ring);
   o1.connect(lp); o2.connect(g2).connect(lp); lp.connect(g).connect(out); o1.start(t); o2.start(t); o1.stop(t+ring+.05); o2.stop(t+ring+.05);
 }
-function blip(t,lv,out){ if(t<GATE) return; const a=actx,o=a.createOscillator(),g=a.createGain(); o.frequency.value=[900,1150,1500][lv]; g.gain.setValueAtTime([.07,.11,.18][lv],t); g.gain.exponentialRampToValueAtTime(.0001,t+.05); o.connect(g).connect(out); o.start(t); o.stop(t+.06); }
+function blip(t,lv,out){ if(t<GATE||t>=STOPAT) return; const a=actx,o=a.createOscillator(),g=a.createGain(); o.frequency.value=[900,1150,1500][lv]; g.gain.setValueAtTime([.07,.11,.18][lv],t); g.gain.exponentialRampToValueAtTime(.0001,t+.05); o.connect(g).connect(out); o.start(t); o.stop(t+.06); }
 function clearTimers(){ timers.forEach(clearTimeout); timers=[]; }
 /* one icon set, drawn at one stroke weight to match the lock */
 /* chord names in display lettering: ♭ and ♯ are set in the same face as the letters, raised and a little smaller,
@@ -2591,8 +2602,10 @@ function stopAll(){ if(baHearing){ baHearing=false; renderBreak(); } abReset(); 
 function playChart(){
   if(!chords.some(real)){ stopAll(); toast('Add a chord to play: press + Add chord or Generate'); return; }
   baHearing=false; abReset(); const a=ac(); clearTimers(); const out=newSession(); playing=true; $('#play').innerHTML=IC.stop+'Stop'; arrPlayBtn();
-  playPass(a.currentTime+.08,out);
+  const lp=loopSel(); lp?playPass(a.currentTime+.08-lp.b0*60/S.tempo*(4/den()),out,lp.b0,lp.b1):playPass(a.currentTime+.08,out);
 }
+/* the roll's loop, if it still fits the chart */
+const loopSel=()=>{ const tot=chartTicks()/TICKS; return LOOP_SEL&&LOOP_SEL.b0<tot?LOOP_SEL:null; };
 /* one pass through the chart from audio time t. The next pass is queued a little before this one ends and starts exactly
    where it ends, in the same session, so a loop has no gap and ringing notes carry over the seam instead of being cut. */
 const LOOP_AHEAD=.5;
@@ -2602,27 +2615,30 @@ let PASSES=[];
 const playSig=()=>JSON.stringify([serialize(),chords.map(c=>[c.id,c.gpin,c.ppin]),tune,S.tempo,S.meter,S.instrument,S.pstyle,S.gstyle,S.voicing,S.tuning,S.capo,S.arr,S.arrGroup,S.arrShow,S.arrSeed,S.arrMute,S.showMel,S.melPlay,S.melText,S.drone,S.tonic,S.mode]);
 /* one pass through the chart from audio time t. With `from` (a beat), it starts partway through: notes before that beat are
    left out and the chord sounding there is struck afresh, so an edit made while playing is heard straight away. */
-function playPass(t,out,from=0){
-  const a=actx, unit=60/S.tempo*(4/den()), L=barLen(), acc=new Set(ACCENTS[S.meter]), total=chords.reduce((s,c)=>s+c.beats,0), start=t+from*unit; let beat=0;
+function playPass(t,out,from=0,to=null){
+  const a=actx, unit=60/S.tempo*(4/den()), L=barLen(), acc=new Set(ACCENTS[S.meter]), total=chords.reduce((s,c)=>s+c.beats,0), start=t+from*unit, t0=t; let beat=0;
+  const stop=to==null?total:Math.min(to,total);
   PASSES=[...PASSES.filter(p=>p.t+p.total*p.unit>a.currentTime&&p.t<t),{t,unit,total,sig:playSig()}];
-  GATE=from?start-.02:0;
-  if(S.drone) droneTones(start,(total-from)*unit,out);
+  GATE=from?start-.02:0; STOPAT=to==null?Infinity:t+stop*unit-.005; rollHeadGo();
+  if(S.drone) droneTones(start,(stop-from)*unit,out);
   const ar=arrOn()?arrange():null, withChords=!ar||!arrMuted(ar.voices.length);
   if(ar) playArr(ar,t,unit,out); else if(S.showMel&&S.melPlay) playMelLine(t,unit,out);
   const part=isPart()&&chords.some(real); if(part&&withChords) playPart(t,unit,out);
   chords.forEach(c=>{
-    const dur=c.beats*unit;
-    if(beat+c.beats<=from){ beat=sb(beat+c.beats); t+=dur; return; }
+    const dur=c.beats*unit, len=Math.min(c.beats,stop-beat);
+    if(beat+c.beats<=from||len<=1e-9){ beat=sb(beat+c.beats); t+=dur; return; }
     const v=real(c)?playedVoicing(c):null, mid=from>beat;
-    if(withChords&&!part) mid?playStyled(c,start,beat+c.beats-from,unit,out,v,from):playStyled(c,t,c.beats,unit,out,v,beat);
+    if(withChords&&!part) mid?playStyled(c,start,beat+len-from,unit,out,v,from):playStyled(c,t,len,unit,out,v,beat);
     timers.push(setTimeout(()=>{ midiChord(v); $('#nowChord').innerHTML=real(c)?chordHTML(c):'rest'; markPlaying(c.id); },Math.max(0,((mid?start:t)-a.currentTime)*1000)));
-    if(S.click) for(let b=Math.ceil(beat-1e-9);b<beat+c.beats-1e-9;b++){ const bb=b%L; blip(t+(b-beat)*unit,bb===0?2:acc.has(bb)?1:0,out); }
+    if(S.click) for(let b=Math.ceil(beat-1e-9);b<beat+len-1e-9;b++){ const bb=b%L; blip(t+(b-beat)*unit,bb===0?2:acc.has(bb)?1:0,out); }
     beat=sb(beat+c.beats); t+=dur;
   });
-  GATE=0;
-  const end=t;
+  GATE=0; STOPAT=Infinity;
+  const end=t0+stop*unit, lp=to==null?null:{b0:from,b1:to};
   timers.push(setTimeout(()=>{ if(!playing) return;
-    if(S.loop&&!baHearing&&chords.some(real)) playPass(Math.max(end,actx.currentTime+.03),out);
+    /* a loop set on the roll's ruler plays its bars again whether or not Loop is ticked */
+    if(lp&&LOOP_SEL&&!baHearing&&chords.some(real)) playPass(Math.max(end,actx.currentTime+.03)-LOOP_SEL.b0*unit,out,LOOP_SEL.b0,LOOP_SEL.b1);
+    else if(S.loop&&!baHearing&&chords.some(real)) playPass(Math.max(end,actx.currentTime+.03),out);
     else timers.push(setTimeout(()=>{ if(playing) stopAll(); },Math.max(0,(end-actx.currentTime)*1000)));
   },Math.max(0,(end-a.currentTime-LOOP_AHEAD)*1000)));
 }
@@ -2635,9 +2651,9 @@ function resyncPlay(){
   if(cur.sig===playSig()) { markPlaying(PLAYING_ID); return; }
   if(!chords.some(real)){ stopAll(); return; }
   const total=chords.reduce((s,c)=>s+c.beats,0), unit=60/S.tempo*(4/den());
-  let b=Math.max(0,(now-cur.t)/cur.unit); if(b>=total) b=0;
+  let b=Math.max(0,(now-cur.t)/cur.unit); if(b>=total) b=0; const lp=loopSel(); if(lp&&(b<lp.b0||b>=lp.b1)) b=lp.b0;
   clearTimers(); PASSES=[]; const out=newSession(), t=now+.05;
-  playPass(t-b*unit,out,b);
+  playPass(t-b*unit,out,b,lp?lp.b1:null);
 }
 /* the chords around one, for hearing it in context: up to S.hearBack chords before it and the one after it. Unlike the swap
    ideas, which treat the chart as a loop, this never wraps round: the last chord has nothing after it. */
@@ -2957,7 +2973,10 @@ function rerenderDetailKeepScroll(){ const sc=$('#detail .shapes')?.scrollLeft||
 /* ============ state & rendering ============ */
 const $=s=>document.querySelector(s);
 function snapshot(){ return JSON.stringify({v:2,S,chords,sel,tune}); }
-function pushHist(){ hist.push(snapshot()); if(hist.length>60) hist.shift(); }
+/* every undo step goes through pushSnap, so a new edit always clears what redo could bring back */
+let fut=[];
+function pushSnap(snap){ hist.push(snap); if(hist.length>60) hist.shift(); fut=[]; }
+function pushHist(){ pushSnap(snapshot()); }
 function save(){ try{ localStorage.setItem('changes-v1',snapshot()); }catch(e){} }
 function commit(){ syncRepeats(); renderAll(); save(); }
 function toast(msg,action){ const t=$('#toast'); t.textContent=msg;
@@ -3482,17 +3501,87 @@ function renderRoll(){
   chords.forEach((c,i)=>{ const x=st[i]*g.px, w=cTicks(c)*g.px, k=keyAt(i), tones=real(c)?pcsOf(c):[];
     rows.forEach(m=>{ const y=(g.hi-m)*g.rowH; if(!inSc(k,mod(m))) body+=`<rect class="ro" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; if(tones.includes(mod(m))) body+=`<rect class="rg" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; });
     const lab=!real(c)?'–':S.labels==='names'||S.labels==='both'?chordName(c):topLabel(c);
-    strip+=`<div class="rc k-${analyze(c).kind}" style="left:${x}px;width:${w}px" title="${esc(chordName(c))}">${esc(lab)}</div>`; });
+    strip+=`<div class="rc k-${analyze(c).kind}" style="left:${x}px;width:${w}px" title="${esc(chordName(c))}">${esc(lab)}<span class="rz" data-ci="${i}" title="Drag to change the length"></span></div>`; });
+  const lp=loopSel(); if(lp) strip+=`<div class="rloop" style="left:${lp.b0*TICKS*g.px}px;width:${(Math.min(lp.b1*TICKS,g.ticks)-lp.b0*TICKS)*g.px}px" title="Loop: bars ${lp.b0/L+1}–${lp.b1/L}. Double-tap the ruler to clear"></div>`;
   for(let t=0;t<=g.ticks;t+=TICKS){ const bar=!(t%(L*TICKS)); body+=`<line class="${bar?'rbar':'rbeat'}" x1="${t*g.px}" x2="${t*g.px}" y1="0" y2="${H}"/>`; if(bar&&t<g.ticks) strip+=`<span class="rbn" style="left:${t*g.px}px">${t/TICKS/L+1}</span>`; }
   rows.forEach(m=>{ const out=!inSc(k0,mod(m)); keys+=`<div class="rk${out?' out':''}${mod(m)===0?' c':''}" data-m="${m}" style="height:${g.rowH}px"><b>${esc(nm(k0,m))}${mod(m)===0?Math.floor(m/12)-1:''}</b><span>${inKey(k0,()=>degOf(m))}</span></div>`; });
   const T=chartTicks();
   tune.forEach((n,i)=>{ const p=rollXY(n.t,n.m,g), w=n.d*g.px, b=n.t/TICKS, ci=n.t<T?chordIdxAt(b):-1, oor=n.t>=T;
     const f=oor?'':noteFit(n.m,ci,b,n.d), name=nm(keyAt(Math.max(ci,0)),n.m), car=ci>=0&&carries(ci,n.m);
     const label=`Bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${name}${oor?' (past the end of the chart)':` (${NOTE_FIT[f]}${car?', carried by this chord':''})`}`;
-    body+=`<g class="rn${oor?' oor':' f-'+f}" data-ri="${i}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><rect x="${p.x}" y="${p.y}" width="${w}" height="${g.rowH}" rx="3"/><text x="${p.x+3}" y="${p.y+g.rowH/2}">${oor?'':fitLetter[f]}${w>=26?' '+esc(name):''}</text></g>`; });
-  el.innerHTML=`<div class="roll-scroll" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
+    body+=`<g class="rn${oor?' oor':' f-'+f}${rollSel.has(n.t)?' rsel':''}" data-ri="${i}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><rect x="${p.x}" y="${p.y}" width="${w}" height="${g.rowH}" rx="3"/><text x="${p.x+3}" y="${p.y+g.rowH/2}">${oor?'':fitLetter[f]}${w>=26?' '+esc(name):''}</text></g>`; });
+  if(rollCur!=null&&rollCur<=g.ticks) body+=`<line class="rcur" x1="${rollCur*g.px}" x2="${rollCur*g.px}" y1="0" y2="${H}"/>`;
+  body+=`<line class="rhead" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
+  const tb=(k,l,on,tip)=>`<button type="button" class="btn small" data-rtool="${k}" aria-pressed="${on}" title="${tip}">${l}</button>`, sc=el.querySelector('.roll-scroll'), sx=sc?.scrollLeft||0, sy=sc?.scrollTop||0;
+  const canSplit=rollCur!=null&&startTicks().some((t0,i)=>t0<rollCur&&rollCur<t0+cTicks(chords[i]));
+  el.innerHTML=`<div class="roll-tools" role="toolbar" aria-label="Piano roll tools">${tb('draw','Draw',ROLL_MODE==='draw','Tap to add a note (D)')}${tb('select','Select',ROLL_MODE==='select','Tap to pick notes (S)')}${tb('erase','Erase',ROLL_MODE==='erase','Tap a note to remove it (E)')}
+    <button type="button" class="btn small" data-rsnap aria-pressed="${!!S.rollSnap}" title="Snap notes to the grid (N)">Snap</button>
+    <button type="button" class="btn small" data-rundo ${hist.length?'':'disabled'}>Undo</button><button type="button" class="btn small" data-rredo ${fut.length?'':'disabled'}>Redo</button>
+    <button type="button" class="btn small" data-rsplit ${canSplit?'':'disabled'} title="Split the chord where you last tapped">Split chord here</button></div>
+    <div class="roll-scroll" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
     <div class="roll-corner"></div><div class="roll-strip" style="height:${g.laneH}px">${strip}</div>
-    <div class="roll-keys">${keys}</div><svg class="roll-body" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg></div></div>`;
+    <div class="roll-keys">${keys}</div><svg class="roll-body m-${ROLL_MODE}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg></div></div>`;
+  const nsc=el.querySelector('.roll-scroll'); nsc.scrollLeft=sx; nsc.scrollTop=sy; rollPx=g.px;
+}
+/* ---- roll editing: pure edits on the tune, one voice. The gestures below call them and make each gesture one undo step ---- */
+let ROLL_MODE='draw', rollSel=new Set(), LOOP_SEL=null, rollCur=null, rollPx=0, rg=null, rollTap=0;
+const clampM=m=>Math.min(108,Math.max(21,m));
+function rollSnapT(t,floor=false){ if(!S.rollSnap) return Math.round(t); const s=slotTicks(); return (floor?Math.floor(t/s+1e-9):Math.round(t/s))*s; }
+const rollStep=()=>S.rollSnap?slotTicks():1;
+function rollHit(x,y,g,coarse){
+  const hits=[]; tune.forEach((n,i)=>{ const dy=Math.abs(y-((g.hi-n.m)*g.rowH+g.rowH/2)); if(dy>Math.max(g.rowH/2,coarse?22:0)) return;
+    const x0=n.t*g.px, x1=(n.t+n.d)*g.px, ez=coarse?22:Math.min(8,(x1-x0)/3);
+    if(x>=x0&&x<x1-ez) hits.push({i,part:'body',o:0,dy}); else if(x>=x1-ez&&x<=x1+(coarse?22:0)) hits.push({i,part:'end',o:1,dy}); });
+  hits.sort((a,b)=>a.o-b.o||a.dy-b.dy); if(hits.length) return {i:hits[0].i,part:hits[0].part};
+  const p=rollTM(Math.max(0,x),y,g); return {t:p.t,m:clampM(p.m)};
+}
+function notePut(t,d,m,extra={}){ t=Math.max(0,t); d=Math.max(1,d); tuneClear(t,t+d); tuneAdd(0,[{...extra,t,d,m:clampM(m)}]); }
+function noteDel(i){ tune=tune.filter((_,j)=>j!==i); }
+function noteMove(i,dt,dm){ const n=tune[i]; if(!n) return; const {t,d,m,...rest}=n; noteDel(i); notePut(t+dt,d,m+dm,rest); }
+function noteSize(i,d){ const n=tune[i]; if(!n) return; const {t,m,...rest}=n; delete rest.d; noteDel(i); notePut(t,d,m,rest); }
+function splitChordAt(t){ const st=startTicks(), i=chords.findIndex((c,j)=>st[j]<t&&t<st[j]+cTicks(c)); if(i<0) return false;
+  pushHist(); const c=chords[i], n={...c,id:uid(),beats:(st[i]+cTicks(c)-t)/TICKS}; delete n.br; delete n.sec; delete n.kc; c.beats=(t-st[i])/TICKS;
+  chords.splice(i+1,0,n); sel=n.id; commit(); toast(`Split ${real(c)?chordName(c):'the chord'} at bar ${Math.floor(t/TICKS/barLen())+1}`); return true; }
+/* the playhead follows the newest pass that has started */
+let rollHeadOn=false;
+function rollHeadGo(){ if(!rollHeadOn){ rollHeadOn=true; requestAnimationFrame(rollHead); } }
+function rollHead(){ const l=document.querySelector('#roll .rhead');
+  if(!playing||!actx||!PASSES.length){ l?.setAttribute('visibility','hidden'); rollHeadOn=false; return; }
+  if(l){ const now=actx.currentTime, cur=[...PASSES].reverse().find(p=>p.t<=now)||PASSES[0], x=Math.max(0,(now-cur.t)/cur.unit)*TICKS*rollPx;
+    l.setAttribute('x1',x); l.setAttribute('x2',x); l.setAttribute('visibility','visible'); }
+  requestAnimationFrame(rollHead); }
+function initRoll(){
+  const el=$('#roll'), coarseOf=e=>e.pointerType==='touch'||e.pointerType==='pen';
+  el.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.rtool){ ROLL_MODE=b.dataset.rtool; renderRoll(); }
+    else if(b.hasAttribute('data-rsnap')){ S.rollSnap=!S.rollSnap; save(); renderRoll(); }
+    else if(b.hasAttribute('data-rundo')) undo(); else if(b.hasAttribute('data-rredo')) redo();
+    else if(b.hasAttribute('data-rsplit')&&rollCur!=null) splitChordAt(rollCur); });
+  el.addEventListener('pointerdown',e=>{ if(e.button>0||rg) return;
+    const g=rollGeom(), rz=e.target.closest('.rc .rz'), strip=e.target.closest('.roll-strip'), body=e.target.closest('.roll-body'), base={tune:tune.slice(),snap:snapshot(),pid:e.pointerId,x0:e.clientX,y0:e.clientY,g};
+    if(rz){ e.preventDefault(); const i=+rz.dataset.ci; rg={...base,kind:'chord',i,b0:chords[i].beats,st:startTicks()[i]}; return; }
+    if(strip){ e.preventDefault(); const left=strip.getBoundingClientRect().left; rg={...base,kind:'loop',left,b:(e.clientX-left)/g.px/TICKS,moved:false}; return; }
+    if(!body) return; e.preventDefault();
+    const r=body.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, h=rollHit(x,y,g,coarseOf(e)); rollCur=rollSnapT(Math.max(0,Math.floor(x/g.px)),true);
+    if(ROLL_MODE==='erase'){ if(h.i!=null){ pushSnap(base.snap); rollSel.delete(tune[h.i].t); noteDel(h.i); commit(); } else renderRoll(); return; }
+    if(h.i!=null){ rollSel=new Set([tune[h.i].t]); rg={...base,kind:h.part==='end'?'size':'move',i:h.i,n:tune[h.i]}; renderRoll(); return; }
+    if(ROLL_MODE==='draw'){ const t=rollSnapT(h.t,true), nx=tune.find(n=>n.t>t), d=Math.max(1,Math.min(rollStep()===1?slotTicks():rollStep(),nx?nx.t-t:Infinity));
+      notePut(t,d,h.m); rollSel=new Set([t]); rg={...base,kind:'draw',t,m:h.m,d0:d}; renderRoll(); return; }
+    rollSel.clear(); renderRoll(); });
+  window.addEventListener('pointermove',e=>{ if(!rg||e.pointerId!==rg.pid) return; const g=rg.g, dx=e.clientX-rg.x0, dy=e.clientY-rg.y0, s=rollStep();
+    if(rg.kind==='loop'){ const L=barLen(), b=(e.clientX-rg.left)/g.px/TICKS, lo=Math.min(b,rg.b), hi=Math.max(b,rg.b); if(Math.abs(b-rg.b)<.25) return;
+      rg.moved=true; let b0=Math.max(0,Math.floor(lo/L)*L), b1=Math.ceil(hi/L)*L; if(b1<=b0) b1=b0+L; LOOP_SEL={b0,b1}; renderRoll(); return; }
+    if(rg.kind==='chord'){ const c=chords[rg.i]; if(!c) return; const end=rollSnapT(rg.st+rg.b0*TICKS+dx/g.px), nt=Math.max(s,end-rg.st); if(Math.abs(dx)<3) return; c.beats=nt/TICKS; renderRoll(); return; }
+    tune=rg.tune.slice();
+    if(rg.kind==='move'){ const dt=Math.round(dx/g.px/s)*s, dm=-Math.round(dy/g.rowH); if(dt||dm) noteMove(rg.i,dt,dm); }
+    else if(rg.kind==='size'){ const n=rg.n, end=rollSnapT(n.t+n.d+dx/g.px); noteSize(rg.i,Math.max(s,end-n.t)); }
+    else if(rg.kind==='draw'){ const end=rollSnapT(rg.t+rg.d0+dx/g.px); notePut(rg.t,Math.max(rg.d0,end-rg.t),rg.m); }
+    renderRoll(); });
+  const up=e=>{ if(!rg||e.pointerId!==rg.pid) return; const r=rg; rg=null;
+    if(r.kind==='loop'){ if(!r.moved){ const now=performance.now(); if(now-rollTap<350){ LOOP_SEL=null; rollTap=0; renderRoll(); } else rollTap=now; } resyncPlay(); return; }
+    if(r.kind==='chord'){ const c=chords[r.i]; if(c&&c.beats!==r.b0){ pushSnap(r.snap); sel=c.id; commit(); toast(`${real(c)?chordName(c):'The chord'} now lasts ${fmtBeats(c.beats)} beat${c.beats!==1?'s':''}`); } return; }
+    if(JSON.stringify(tune)!==JSON.stringify(r.tune)){ const moved=tune.find(n=>!r.tune.some(o=>o.t===n.t&&o.d===n.d&&o.m===n.m)); if(moved) rollSel=new Set([moved.t]); pushSnap(r.snap); commit(); } else renderRoll(); };
+  window.addEventListener('pointerup',up); window.addEventListener('pointercancel',e=>{ if(rg&&e.pointerId===rg.pid){ tune=rg.tune; if(rg.kind==='chord'&&chords[rg.i]) chords[rg.i].beats=rg.b0; rg=null; renderAll(); } });
 }
 function gridLaneHTML(r0,r1,starts,row){
   const tk=(r1-r0)*TICKS, s=slotTicks(), L=barLen(), t0=r0*TICKS, say={4:['','e','&','a'],3:['','trip','let'],2:['','&'],1:['']}[TICKS/s]; let h='';
@@ -5987,7 +6076,7 @@ function boot(){
   window.addEventListener('pointerup',e=>{ if(!rsz||e.pointerId!==rsz.pid) return; const r=rsz; rsz=null; rzTip.hidden=true; document.body.classList.remove('resizing-chord');
     const c=chords[r.i], changed=c.beats!==r.b0||(chords[r.i+1]&&chords[r.i+1].beats!==r.n0);
     justDragged=true; setTimeout(()=>justDragged=false,0);
-    if(changed){ hist.push(r.snap); if(hist.length>60) hist.shift(); sel=c.id; commit(); const ta=$('#prog'); ta.classList.add('flash'); setTimeout(()=>ta.classList.remove('flash'),60); toast(`${chordName(c)} now lasts ${fmtBeats(c.beats)} beat${c.beats!==1?'s':''}`); }
+    if(changed){ pushSnap(r.snap); sel=c.id; commit(); const ta=$('#prog'); ta.classList.add('flash'); setTimeout(()=>ta.classList.remove('flash'),60); toast(`${chordName(c)} now lasts ${fmtBeats(c.beats)} beat${c.beats!==1?'s':''}`); }
     else renderChart(); });
   window.addEventListener('pointercancel',()=>{ if(!rsz) return; const r=rsz; rsz=null; rzTip.hidden=true; document.body.classList.remove('resizing-chord'); chords[r.i].beats=r.b0; if(chords[r.i+1]) chords[r.i+1].beats=r.n0; renderChart(); });
   window.addEventListener('pointermove',e=>{ if(!drag||e.pointerId!==drag.pid) return;
@@ -6107,6 +6196,7 @@ function boot(){
     if(partAt!=null&&e.target.closest('.pcell')){ partAt=null; renderPartWhy(); renderChart(); } });
   $('#rows').addEventListener('click',e=>{ const c=e.target.closest('.slot[data-id]'), m=e.target.closest('[data-mb]'), g=e.target.closest('[data-gt],[data-gn]');
     if(c){ const i=chords.findIndex(x=>x.id===c.dataset.id); if(i>=0) laneBar=chordStarts()[i]; } else if(m) laneBar=+m.dataset.mb; else if(g) laneBar=Math.floor(+(g.dataset.gn??g.dataset.gt)/TICKS); else return; setTimeout(()=>{ laneTok=laneNow(); renderLaneRead(); }); },true);
+  initRoll();
   $('#gridBar').addEventListener('change',e=>{ if(e.target.id==='gridSize') S.melGrid=e.target.value; else if(e.target.id==='gridZoom') S.zoomBars=+e.target.value; else if(e.target.id==='melView') S.melView=e.target.value; else return; renderAll(); save(); document.querySelector('.slot.sel')?.scrollIntoView({block:'nearest'}); });
   $('#rows').addEventListener('click',e=>{ const g=e.target.closest('[data-gt],[data-gn]'); if(!g) return; e.stopPropagation(); const t=+(g.dataset.gn??g.dataset.gt), n=gridNote(t); gridSel={t}; renderChart(); renderMelPad(); gridFocus(); if(n) playMelNote(n.m,Math.floor(t/TICKS)); },true);
   $('#rows').addEventListener('keydown',e=>{ const g=e.target.closest('[data-gt],[data-gn]'); if(!g||e.metaKey||e.ctrlKey) return; e.stopPropagation(); gridSel={t:+(g.dataset.gn??g.dataset.gt)}; const t=gridSel.t, key=e.key, n=gridNote(t);
@@ -6255,6 +6345,7 @@ function boot(){
     if(!b) return; const [r,q]=b.dataset.pal.split('|'); palPick={root:+r,q}; playOne({...palPick,bass:null}); renderPalette(); };
   document.addEventListener('keydown',e=>{
     if(e.target.matches('input,select,textarea')||e.target.closest('[role=tablist],[role=menu],[role=dialog],.cpick,.libpop')) return;
+    if((e.metaKey||e.ctrlKey)&&(e.key==='Z'||e.key==='y'||(e.key==='z'&&e.shiftKey))){ e.preventDefault(); redo(); return; }
     if((e.metaKey||e.ctrlKey)&&e.key==='z'){ e.preventDefault(); undo(); return; }
     if(e.key===' '&&!e.target.closest('button')){ e.preventDefault(); playing?stopAll():playChart(); }
     if(e.key==='\\'&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&innerWidth>=760){ e.preventDefault(); setFocus(!S.focus); toast(S.focus?'Focus: press \\ or Show panels to bring the menus back':'Menus and side panel are back'); return; }
@@ -6277,7 +6368,7 @@ function boot(){
   $('#breakaway').addEventListener('click',baClick);
   try{ renderAll(); }
   catch(err){ try{ const old=localStorage.getItem('changes-v1'); if(old) localStorage.setItem('changes-v1-unreadable',old); }catch(e){}
-    Object.assign(S,JSON.parse(JSON.stringify(S_DEFAULT))); setTuning(S.tuning); chords=parseProg(EXAMPLE).chords; sel=chords[0].id; hist=[]; renderAll(); save();
+    Object.assign(S,JSON.parse(JSON.stringify(S_DEFAULT))); setTuning(S.tuning); chords=parseProg(EXAMPLE).chords; sel=chords[0].id; hist=[]; fut=[]; renderAll(); save();
     toast('Your last session couldn’t be opened, so a fresh chart was started. A copy of it was kept in this browser.'); }
   if(fromLink){ save(); toast('Loaded the shared progression'); }
 }
@@ -6287,12 +6378,13 @@ function transpose(n){
   commit(); toast(`Transposed ${n>0?'up':'down'} ${Math.abs(n)} half step${Math.abs(n)>1?'s':''} to ${keyName()}`);
 }
 function vocabName(){ const vk=[...S.vocab].sort().join(); const p=Object.keys(PRESETS).find(k=>[...PRESETS[k]].sort().join()===vk); return p?'Chords allowed: '+p:'Chords allowed: '+['triads',...FAMS.filter(f=>!f.fixed&&famOn(f.id)).map(f=>f.name)].join(', '); }
-function undo(){ const s=hist.pop(); if(!s) return; syncedTop=hist[hist.length-1]??null; restoreSnap(s); }
+function undo(){ const s=hist.pop(); if(!s) return; fut.push(snapshot()); syncedTop=hist[hist.length-1]??null; restoreSnap(s); }
+function redo(){ const s=fut.pop(); if(!s) return; hist.push(snapshot()); syncedTop=hist[hist.length-1]; restoreSnap(s); }
 /* which view you're in isn't an edit, so undo leaves it (and the chord families it set) as they are */
 const VIEW_KEYS=['melGrid','zoomBars','melView','rollSnap','centres','focus','hearIn','textSize','simple','simpleTheory','vocab','vocabFull','colorBy','colors','keyHome','keyColors'];
 function restoreSnap(s){ const d=JSON.parse(s), keep=Object.fromEntries(VIEW_KEYS.map(k=>[k,S[k]])); Object.assign(S,d.S,keep); setTuning(S.tuning); chords=d.chords; sel=d.sel; loadTune(d); commit(); }
 /* an Undo offered in a toast reverts that action, even if other edits happened since: it restores the snapshot taken just before it */
-function undoTo(snap){ return ()=>{ const i=hist.lastIndexOf(snap); if(i>=0) hist.length=i; syncedTop=hist[hist.length-1]??null; restoreSnap(snap); }; }
+function undoTo(snap){ return ()=>{ const i=hist.lastIndexOf(snap); if(i>=0) hist.length=i; fut=[]; syncedTop=hist[hist.length-1]??null; restoreSnap(snap); }; }
 if(typeof document!=='undefined'&&document.getElementById('rows')) boot();
 </script>
 
