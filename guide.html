@@ -61,7 +61,7 @@ footer{max-width:1180px;margin:56px auto 0;color:var(--muted);font-size:14px;bor
 @media (max-width:860px){ .page{display:block} .toc{position:static;max-height:none;padding-top:8px} .toc ol{flex-direction:row;flex-wrap:wrap;gap:4px} .toc a{background:var(--surface);border:1px solid var(--line)} .map{grid-template-columns:1fr} }
 </style></head><body>
 <header class="top"><a class="name" href="./">Chord Changes</a><nav aria-label="Pages"><a class="btn" href="guide.html" aria-current=page>How to use</a><a class="btn" href="how-it-works.html">Under the hood</a><a class="btn primary" href="./">Open the app</a></nav></header>
-<div class="page"><nav class="toc" aria-label="On this page"><b>On this page</b><ol><li><a href="#quick">Quick start</a></li><li><a href="#simple">Simple view: for beginners</a></li><li><a href="#reading">Easier to read</a></li><li><a href="#screen">Finding your way around</a></li><li><a href="#make">Making a progression</a></li><li><a href="#edit">Editing the chart</a></li><li><a href="#offline">On a phone, and with no connection</a></li><li><a href="#rhythm">Rhythm: grid sizes and zoom</a></li><li><a href="#breakaway">Break away from another song</a></li><li><a href="#form">Song form: verses, choruses and repeats</a></li><li><a href="#melody">Melody</a></li><li><a href="#swaps">Swap ideas</a></li><li><a href="#play">Playing and hearing</a></li><li><a href="#export">Export, share and save</a></li><li><a href="#tools">More tools</a></li><li><a href="#keys">Keyboard shortcuts</a></li><li><a href="#sound">If you hear nothing</a></li><li><a href="#privacy">Your data</a></li></ol></nav>
+<div class="page"><nav class="toc" aria-label="On this page"><b>On this page</b><ol><li><a href="#quick">Quick start</a></li><li><a href="#simple">Simple view: for beginners</a></li><li><a href="#reading">Easier to read</a></li><li><a href="#screen">Finding your way around</a></li><li><a href="#make">Making a progression</a></li><li><a href="#edit">Editing the chart</a></li><li><a href="#offline">On a phone, and with no connection</a></li><li><a href="#rhythm">Rhythm: grid sizes and zoom</a></li><li><a href="#roll">Piano roll</a></li><li><a href="#breakaway">Break away from another song</a></li><li><a href="#form">Song form: verses, choruses and repeats</a></li><li><a href="#melody">Melody</a></li><li><a href="#swaps">Swap ideas</a></li><li><a href="#play">Playing and hearing</a></li><li><a href="#export">Export, share and save</a></li><li><a href="#tools">More tools</a></li><li><a href="#keys">Keyboard shortcuts</a></li><li><a href="#sound">If you hear nothing</a></li><li><a href="#privacy">Your data</a></li></ol></nav>
 <main><h1>How to use Chord Changes</h1>
 <p class="lede">Chord Changes helps you find chord progressions, hear them, understand why they work and take them into your music app. You don’t need to know music theory to start; the theory is there when you want it.</p>
 
@@ -199,6 +199,30 @@ D | E | F#m | E</pre>
 </ul>
 <p>Playing styles are written in whole beats, so on a chord that ends off the beat, anything past its end is cut short. The notation download rounds chords in triplets to the nearest 16th.</p>
 <p><b>Put in melody lane</b>, in the Harmonize panel, starts at the bar you've selected and changes only the bars it covers. The panel tells you which bars before anything is written, and whether notes will be replaced or won't fit.</p>
+
+<h2 id="roll">Piano roll</h2>
+<p>In the full view (not Simple view), turn the melody on, then set <b>Melody</b> above the chart to <b>Piano roll</b>. The roll shows the same tune as the lane, one row per note, higher notes higher. The chords run along the top, and a keyboard down the side names each row and its degree in the key. Rows outside the key are shaded, and the tones of the chord sounding above are lightly marked.</p>
+<ul>
+  <li><b>Draw</b>: tap an empty spot to add a note one grid slot long, and drag to stretch it as you draw. Drag a note to move it in time or pitch, and drag its right end to change its length.</li>
+  <li><b>Select</b>: tap a note to pick it, or drag across empty space to pick everything inside the box. A long press (or Shift-click) adds a note to what's picked. Drag any picked note to move them all.</li>
+  <li><b>Erase</b>: tap a note to remove it.</li>
+  <li><b>Snap</b> keeps notes on the grid chosen in <b>Grid</b>. Turn it off to place notes freely.</li>
+  <li>With notes picked: <b>Copy</b>, <b>Paste</b> (where you last tapped), <b>Duplicate</b> (a picked bar fills the next bar), <b>Up</b> and <b>Down</b> by a half step, or by a scale step with <b>Scale steps</b> on, and <b>Delete</b>. <b>Quantize</b> lines the picked notes up with the grid, or every note when none is picked.</li>
+  <li>Drag the end of a chord along the top to change its length. <b>Split chord here</b> splits the chord where you last tapped.</li>
+  <li>Drag along the bar numbers to loop just those bars when you press Play. Double-tap there to clear the loop.</li>
+  <li>On a phone, pinch to zoom in and out, and drag with two fingers to scroll. The tools sit at the bottom of the roll.</li>
+</ul>
+<p>The melody is one voice, so a note you add or move shortens or replaces the notes it lands on. Every change is one step for <b>Undo</b> and <b>Redo</b>.</p>
+<p><b>How each note fits.</b> Every note carries a letter, so you don't need to tell colours apart:</p>
+<table>
+  <tr><th>Letter</th><th>Meaning</th></tr>
+  <tr><td>T</td><td>Chord tone: one of the chord's own notes</td></tr>
+  <tr><td>E</td><td>Extension: a 9th, 11th or 13th over the chord (an 11th over a major chord counts as a clash on a strong beat)</td></tr>
+  <tr><td>P</td><td>Passing note: in the key, but not in the chord</td></tr>
+  <tr><td>C</td><td>Chromatic note: outside the key</td></tr>
+  <tr><td>!</td><td>Clash: a half step above a chord tone, or a tritone over the root, on a strong beat or held for a beat or more</td></tr>
+</table>
+<p>Hover over or long-press a note to see its fit. When a chord from outside the key is the reason an outside note works, it says <b>carried by this chord</b>, like a minor iv under a ♭6 or a dominant 7th under a ♭7.</p>
 
 <h2 id="breakaway">Break away from another song</h2>
 <p>If you started from another song and can’t get it out of your head, enter its chords (and its tune in the melody lane, if you can), then press <b>Break away</b> in the Song form strip. That chart is kept as the original, and a panel shows how many bars still follow it.</p>
@@ -351,7 +375,7 @@ D | E | F#m | E</pre>
   <tr><td>Written out</td><td>Cdim, Cdim7, Caug, Cmaj7, Cm7, Cm7♭5, C6/9</td></tr>
   <tr><td>Jazz</td><td>C°, C°7, C+, CΔ7, C−7, Cø7, C−Δ7, C+7</td></tr>
 </table>
-<p>The second menu chooses what the chart shows: <b>chord names and numerals</b> (the default), <b>chord names only</b>, or <b>Roman numerals only</b>, which puts the numerals in large type with the chord names underneath. The printed lead sheet and Copy chart follow both choices. MusicXML uses your symbol style (with “use symbols” set for Jazz, so notation apps can draw their own triangle and circle), and with Roman numerals only it also writes the numerals under the staff. The Edit as text box always uses Classic spelling, but it reads all three styles, so you can paste a chart copied in any of them.</p>
+<p>The second menu chooses what the chart shows: <b>chord names and numerals</b> (the default), <b>chord names only</b>, or <b>Roman numerals only</b>, or <b>Nashville numbers</b> (1, 4, 5m7, ♭7, 1/3, counted from the key's home note), which puts the numerals in large type with the chord names underneath. The printed lead sheet and Copy chart follow both choices. MusicXML uses your symbol style (with “use symbols” set for Jazz, so notation apps can draw their own triangle and circle), and with Roman numerals only it also writes the numerals under the staff. The Edit as text box always uses Classic spelling, but it reads all three styles, so you can paste a chart copied in any of them.</p>
 <p>The <b>Library</b> at the top right saves progressions by name in this browser. You can open, rename, duplicate and delete them (with undo), export the whole library as a file for backup, import it on another computer, and paste a share link or code to open it.</p>
 
 <h2 id="tools">More tools</h2>
@@ -380,6 +404,10 @@ D | E | F#m | E</pre>
   <tr><td><kbd>⌘Z</kbd> / <kbd>Ctrl+Z</kbd></td><td>Undo</td></tr>
   <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>Load the text chart</td></tr>
   <tr><td><kbd>A</kbd>–<kbd>G</kbd>, <kbd>#</kbd>, <kbd>-</kbd>, <kbd>.</kbd>, <kbd>/</kbd></td><td>In the melody lane: a note, raise it, hold, rest, split the beat into two notes</td></tr>
+  <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd>, or <kbd>Ctrl+Y</kbd></td><td>Redo</td></tr>
+  <tr><td><kbd>D</kbd> <kbd>S</kbd> <kbd>E</kbd> <kbd>N</kbd></td><td>In the piano roll: Draw, Select, Erase, Snap on or off</td></tr>
+  <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></td><td>In the piano roll: move the picked notes a slot or a half step. <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves an octave, <kbd>Option</kbd>/<kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> a scale step</td></tr>
+  <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>C</kbd> <kbd>V</kbd> <kbd>D</kbd>, <kbd>Q</kbd>, <kbd>Delete</kbd></td><td>In the piano roll: copy, paste, duplicate, quantize, delete</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close a picker, menu or drawer</td></tr>
 </table>
 

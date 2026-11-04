@@ -2352,7 +2352,7 @@ async function rollSuite() {
   await load('C', 0);
   check('roll: split here splits the chord on an 8th', JSON.stringify(await page.evaluate(() => { splitChordAt(18); return chords.map(c => c.beats); })) === '[1.5,2.5]');
   await setRoll('C G', []);
-  { const r = await page.evaluate(() => { const z = document.querySelector('#roll .rc .rz').getBoundingClientRect(); return { x: z.left + z.width / 2, y: z.top + z.height / 2, px: rollGeom().px }; });
+  { const r = await page.evaluate(() => { const z = document.querySelector('#roll .roll-strip .rz').getBoundingClientRect(); return { x: z.left + z.width / 2, y: z.top + z.height / 2, px: rollGeom().px }; });
     await page.mouse.move(r.x, r.y); await page.mouse.down(); await page.mouse.move(r.x - 1.4 * 12 * r.px, r.y, { steps: 5 }); await page.mouse.up();
     check('roll: a chord edge drag snaps on the roll', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats))) === '[2.5,4]', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats)))); }
   await load('C | G | Am', 0);
@@ -2418,7 +2418,60 @@ async function rollSuite() {
     const p = await at(28, 62); await page.evaluate(([x, y]) => { const t = document.elementFromPoint(x, y); t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0 })); }, [p.x, p.y]);
     await page.waitForTimeout(650); await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch' })), [p.x, p.y]);
     check('roll: long-press adds to the selection', JSON.stringify(await page.evaluate(() => [...rollSel].sort((a, b) => a - b))) === '[0,24]' && (await tj()) === '[[0,12,60],[24,12,62]]', JSON.stringify(await page.evaluate(() => [...rollSel]))); }
+  // Task 6: fit contrast in both themes, then the phone
+  const fitContrast = p => p.evaluate(() => { const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    const rgb = c => { cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+    const lum = c => { const [r, g, b] = rgb(c).map(x => { x /= 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+    const out = {}; document.querySelectorAll('#roll .rn:not(.oor)').forEach(n => { const f = [...n.classList].find(c => c.startsWith('f-')), a = lum(getComputedStyle(n.querySelector('text')).fill), b = lum(getComputedStyle(n.querySelector('rect')).fill); out[f] = +(((Math.max(a, b) + .05) / (Math.min(a, b) + .05)).toFixed(2)); }); return out; });
+  const fitSetup = p => p.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.simple = false; document.body.classList.remove('simple'); chords = parseProg('C | G').chords; tune = [{ t: 0, d: 12, m: 64 }, { t: 12, d: 12, m: 62 }, { t: 24, d: 12, m: 65 }, { t: 36, d: 3, m: 63 }, { t: 40, d: 2, m: 65 }]; S.showMel = true; S.melView = 'roll'; commit(); });
+  await fitSetup(page);
+  { const c = await fitContrast(page); check('roll: fit letters stand out in light', Object.keys(c).length >= 4 && Object.values(c).every(v => v >= 4.5), JSON.stringify(c)); }
+  { const { ctx: c2, page: p2 } = await openPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' }); await p2.goto(URL_); await fitSetup(p2);
+    const c = await fitContrast(p2); check('roll: fit letters stand out in dark', Object.keys(c).length >= 4 && Object.values(c).every(v => v >= 4.5), JSON.stringify(c)); await c2.close(); }
   await ctx.close();
+  { const { ctx, page } = await openPage({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true }); await page.goto(URL_);
+    const tp = (type, id, x, y) => page.evaluate(([type, id, x, y]) => { const ev = new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType: 'touch', isPrimary: id === 1, button: 0 }); const tg = type === 'pointerdown' ? document.elementFromPoint(x, y) : window; if (!tg) throw new Error('nothing at ' + x + ',' + y + ' vh ' + innerHeight); tg.dispatchEvent(ev); }, [type, id, x, y]);
+    const tap = async (x, y) => { await tp('pointerdown', 1, x, y); await tp('pointerup', 1, x, y); };
+    const drag = async (x0, y0, x1, y1) => { await tp('pointerdown', 1, x0, y0); for (let k = 1; k <= 4; k++) await tp('pointermove', 1, x0 + (x1 - x0) * k / 4, y0 + (y1 - y0) * k / 4); await tp('pointerup', 1, x1, y1); };
+    const at = (t, m) => page.evaluate(([t, m]) => { document.querySelector('#roll .roll-scroll').scrollIntoView({ block: 'nearest' }); const g = rollGeom(), r = document.querySelector('#roll .roll-body').getBoundingClientRect(), p = rollXY(t, m, g); return { x: r.left + p.x, y: r.top + p.y + g.rowH / 2, px: g.px, rowH: g.rowH }; }, [t, m]);
+    const btn = async q => { const b = await page.evaluate(q => { const e = document.querySelector(q); e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, q); await page.touchscreen.tap(b.x, b.y); };
+    const tj = () => page.evaluate(() => JSON.stringify(tune.map(n => [n.t, n.d, n.m])));
+    await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; S.simple = false; document.body.classList.remove('simple'); S.melGrid = '2'; S.zoomBars = 0; S.rollSnap = true; chords = parseProg('C | G | Am | F | C | G | Am | F').chords; tune = [{ t: 0, d: 12, m: 64 }]; S.showMel = true; S.melView = 'roll'; ROLL_MODE = 'draw'; commit(); document.querySelector('#roll').scrollIntoView({ block: 'start' }); });
+    check('roll phone: rows are taller on touch', (await page.evaluate(() => rollGeom().rowH)) === 28);
+    check('roll phone: shows two bars by default', await page.evaluate(() => { const g = rollGeom(), w = document.querySelector('#roll .roll-scroll').clientWidth - g.keyW; return Math.abs(g.px * 2 * 4 * TICKS - w) < 2; }));
+    check('roll phone: no sideways page scroll at 375px', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    check('roll phone: note targets reach 44px by slop', await page.evaluate(() => { const g = rollGeom(), y = rollXY(0, 64, g).y + g.rowH / 2; return rollHit(4, y + 21, g, true).i === 0 && rollHit(4, y - 21, g, true).i === 0; }));
+    check('roll phone: toolbar buttons are at least 44px tall', await page.evaluate(() => [...document.querySelectorAll('#roll .roll-tools button')].every(b => b.getBoundingClientRect().height >= 44)));
+    check('roll phone: chord edge handles are at least 44px wide', await page.evaluate(() => document.querySelector('#roll .roll-strip .rz').getBoundingClientRect().width >= 44));
+    { const s0 = await page.evaluate(() => rollScale), t0 = await tj(), r = await page.evaluate(() => { const e = document.querySelector('#roll .roll-scroll'); e.scrollIntoView({ block: 'nearest' }); const sc = e.getBoundingClientRect(); return { x: sc.left + 120, y: (Math.max(sc.top + 50, 0) + Math.min(sc.bottom, innerHeight)) / 2 }; });
+      await tp('pointerdown', 1, r.x, r.y); await tp('pointerdown', 2, r.x + 40, r.y); for (let k = 1; k <= 4; k++) await tp('pointermove', 2, r.x + 40 + 20 * k, r.y); await tp('pointerup', 2, r.x + 120, r.y); await tp('pointerup', 1, r.x, r.y);
+      check('roll phone: pinch zooms and adds nothing', (await page.evaluate(() => rollScale)) > s0 * 1.5 && (await tj()) === t0, `${s0} -> ${await page.evaluate(() => rollScale)} ${await tj()}`);
+      const sl0 = await page.evaluate(() => document.querySelector('#roll .roll-scroll').scrollLeft);
+      await tp('pointerdown', 1, r.x + 100, r.y); await tp('pointerdown', 2, r.x + 140, r.y); for (let k = 1; k <= 4; k++) { await tp('pointermove', 1, r.x + 100 - 20 * k, r.y); await tp('pointermove', 2, r.x + 140 - 20 * k, r.y); } await tp('pointerup', 1, r.x + 20, r.y); await tp('pointerup', 2, r.x + 60, r.y);
+      check('roll phone: a two-finger drag scrolls', (await page.evaluate(() => document.querySelector('#roll .roll-scroll').scrollLeft)) > sl0 + 40 && (await tj()) === t0, `${sl0} ${await page.evaluate(() => document.querySelector('#roll .roll-scroll').scrollLeft)}`);
+      check('roll phone: still no sideways page scroll after zooming', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
+    // every edit by touch alone
+    await page.evaluate(() => { rollScale = 1; tune = []; hist = []; fut = []; commit(); const sc = document.querySelector('#roll .roll-scroll'), g = rollGeom(); sc.scrollLeft = 0; sc.scrollTop = (g.hi - 65) * g.rowH + g.laneH - sc.clientHeight / 2; });
+    const steps = [];
+    { const p = await at(1, 64); await tap(p.x, p.y); steps.push(['draw', await tj(), '[[0,6,64]]']); }
+    { const p = await at(2, 64); await drag(p.x, p.y, p.x + 6 * p.px, p.y - p.rowH); steps.push(['move', await tj(), '[[6,6,65]]']); }
+    { const p = await at(12, 65); await drag(p.x - 2, p.y, p.x + 6 * p.px, p.y); steps.push(['resize', await tj(), '[[6,12,65]]']); }
+    { const p = await at(30, 67); await tap(p.x, p.y); steps.push(['draw 2', await tj(), '[[6,12,65],[30,6,67]]']); }
+    await btn('#roll [data-rtool="erase"]'); { const p = await at(31, 67); await tap(p.x, p.y); steps.push(['erase', await tj(), '[[6,12,65]]']); }
+    await btn('#roll [data-rtool="select"]'); { const p = await at(8, 65); await tap(p.x, p.y); steps.push(['select', JSON.stringify(await page.evaluate(() => [...rollSel])), '[6]']); }
+    { const a = await at(0, 67), b = await at(30, 63); await drag(a.x + 1, a.y - 10, b.x, b.y + 10); steps.push(['box select', JSON.stringify(await page.evaluate(() => [...rollSel])), '[6]']); }
+    await btn('#roll [data-rdup]'); steps.push(['duplicate', await tj(), '[[6,12,65],[18,12,65]]']);
+    await btn('#roll [data-rup]'); steps.push(['transpose', await tj(), '[[6,12,65],[18,12,66]]']);
+    await page.evaluate(() => { tune.push({ t: 31, d: 4, m: 70 }); tune.sort((a, b) => a.t - b.t); rollSel = new Set(); commit(); });
+    await btn('#roll [data-rq]'); steps.push(['quantize', await tj(), '[[6,12,65],[18,12,66],[30,6,70]]']);
+    await btn('#roll [data-rundo]'); steps.push(['undo', await tj(), '[[6,12,65],[18,12,66],[31,4,70]]']);
+    await btn('#roll [data-rredo]'); steps.push(['redo', await tj(), '[[6,12,65],[18,12,66],[30,6,70]]']);
+    { const z = await page.evaluate(() => { const e = document.querySelector('#roll .roll-strip .rz').getBoundingClientRect(); return { x: e.left + e.width / 2, y: e.top + e.height / 2, px: rollGeom().px }; }); await drag(z.x, z.y, z.x - 12 * z.px, z.y); steps.push(['chord edge', JSON.stringify(await page.evaluate(() => chords.slice(0, 2).map(c => c.beats))), '[3,4]']); }
+    await btn('#roll [data-rtool="select"]'); { const p = await at(19, 75); await page.evaluate(() => { rollCur = null; }); await tap(p.x, p.y); await btn('#roll [data-rsplit]'); steps.push(['split', JSON.stringify(await page.evaluate(() => chords.slice(0, 3).map(c => c.beats))), '[1.5,1.5,4]']); }
+    const bad = steps.filter(([, got, want]) => got !== want);
+    check('roll phone: every stage 1 to 3 edit works by touch alone', !bad.length, JSON.stringify(bad));
+    check('roll phone: no page errors', page.errors.length === 0, page.errors.join(' | '));
+    await ctx.close(); }
 }
 
 async function menus() {

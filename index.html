@@ -924,17 +924,21 @@ select.btn{border-radius:var(--r-pill)}
 .rn.f-ext rect{fill:color-mix(in srgb,var(--mel-tone) 35%,var(--surface));stroke:var(--mel-tone)}.rn.f-ext text{fill:var(--ink)}
 .rn.f-pass rect{fill:var(--surface);stroke:var(--ink);stroke-dasharray:2 2}.rn.f-pass text{fill:var(--ink)}
 .rn.f-chrom rect{fill:var(--surface);stroke:var(--accent);stroke-dasharray:5 2}.rn.f-chrom text{fill:var(--ink)}
-.rn.f-clash rect{fill:var(--mel-clash);stroke:var(--mel-clash)}.rn.f-clash text{fill:#fff}
+.rn.f-clash rect{fill:var(--mel-clash);stroke:var(--mel-clash)}.rn.f-clash text{fill:#141414}
 .rn.rsel rect{stroke:var(--ink);stroke-width:2.5}
 .roll-body .rcur{stroke:var(--accent);stroke-dasharray:2 3}
 .roll-body .rhead{stroke:var(--accent);stroke-width:2}
 .roll-body.m-erase{cursor:crosshair}
-.roll-strip .rc .rz{position:absolute;right:-1px;top:0;bottom:0;width:10px;cursor:ew-resize;touch-action:none}
+/* the length handle is centred on the chord's end, outside the chord block so it isn't clipped */
+.roll-strip .rz{position:absolute;top:14px;bottom:3px;width:10px;transform:translateX(-50%);z-index:1;cursor:ew-resize;touch-action:none}
 .roll-strip .rloop{position:absolute;top:0;height:12px;background:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:3px;pointer-events:none}
 .roll-strip{cursor:pointer;touch-action:none}
 .roll-body .rbox{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:var(--accent);stroke-dasharray:4 3}
 .roll-seltools{display:contents}
 .roll-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.roll{display:flex;flex-direction:column}
+@media (pointer:coarse){ .roll-tools .btn{min-height:44px;min-width:44px} .roll-strip .rz{width:44px} }
+@media (max-width:640px){ .roll-tools{order:2;position:sticky;bottom:0;z-index:5;background:var(--surface);padding:6px 0;margin:6px 0 0;border-top:1px solid var(--line)} .roll-scroll{max-height:62vh} }
 .roll-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
 .roll-tools [aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .rn.oor rect{fill:url(#none);fill:color-mix(in srgb,var(--muted) 25%,transparent);stroke:var(--muted);stroke-dasharray:3 3}
@@ -3492,8 +3496,9 @@ function rollRange(notes){ if(!notes.length) return {lo:60,hi:84}; let lo=Math.m
   if(hi-lo<24) hi=lo+24; /* short tunes get two octaves upward from just under their lowest note */
   if(lo<21){ hi+=21-lo; lo=21; } if(hi>108){ lo-=hi-108; hi=108; } return {lo:Math.max(21,lo),hi:Math.min(108,hi)}; }
 function rollGeom(){ const {lo,hi}=rollRange(tune), L=barLen(), keyW=56, coarse=matchMedia('(pointer:coarse)').matches, rowH=coarse?28:16,
-    end=Math.max(chartTicks(),...tune.map(n=>n.t+n.d),L*TICKS), ticks=Math.ceil(end/(L*TICKS))*L*TICKS, w=($('#roll')?.clientWidth||760)-keyW;
-  const px=S.zoomBars?w/(S.zoomBars*L*TICKS):40/TICKS*rollScale; return {lo,hi,ticks,px,rowH,keyW,laneH:40}; }
+    end=Math.max(chartTicks(),...tune.map(n=>n.t+n.d),L*TICKS), ticks=Math.ceil(end/(L*TICKS))*L*TICKS, w=($('#roll .roll-scroll')?.clientWidth||$('#roll')?.clientWidth||760)-keyW;
+  /* phones open on two bars; pinching scales whatever the zoom gives */
+  const zoom=S.zoomBars||(innerWidth<640?2:0), px=(zoom?w/(zoom*L*TICKS):40/TICKS)*rollScale; return {lo,hi,ticks,px,rowH,keyW,laneH:40}; }
 const rollXY=(t,m,g)=>({x:t*g.px,y:(g.hi-m)*g.rowH}), rollTM=(x,y,g)=>({t:Math.floor(x/g.px+1e-6),m:g.hi-Math.floor(y/g.rowH+1e-6)});
 function renderRoll(){
   const el=$('#roll'); el.hidden=!rollOn(); if(el.hidden){ el.innerHTML=''; return; }
@@ -3504,7 +3509,7 @@ function renderRoll(){
   chords.forEach((c,i)=>{ const x=st[i]*g.px, w=cTicks(c)*g.px, k=keyAt(i), tones=real(c)?pcsOf(c):[];
     rows.forEach(m=>{ const y=(g.hi-m)*g.rowH; if(!inSc(k,mod(m))) body+=`<rect class="ro" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; if(tones.includes(mod(m))) body+=`<rect class="rg" x="${x}" y="${y}" width="${w}" height="${g.rowH}"/>`; });
     const lab=!real(c)?'–':S.labels==='names'||S.labels==='both'?chordName(c):topLabel(c);
-    strip+=`<div class="rc k-${analyze(c).kind}" style="left:${x}px;width:${w}px" title="${esc(chordName(c))}">${esc(lab)}<span class="rz" data-ci="${i}" title="Drag to change the length"></span></div>`; });
+    strip+=`<div class="rc k-${analyze(c).kind}" style="left:${x}px;width:${w}px" title="${esc(chordName(c))}">${esc(lab)}</div><span class="rz" data-ci="${i}" style="left:${x+w}px" title="Drag to change the length"></span>`; });
   const lp=loopSel(); if(lp) strip+=`<div class="rloop" style="left:${lp.b0*TICKS*g.px}px;width:${(Math.min(lp.b1*TICKS,g.ticks)-lp.b0*TICKS)*g.px}px" title="Loop: bars ${lp.b0/L+1}–${lp.b1/L}. Double-tap the ruler to clear"></div>`;
   for(let t=0;t<=g.ticks;t+=TICKS){ const bar=!(t%(L*TICKS)); body+=`<line class="${bar?'rbar':'rbeat'}" x1="${t*g.px}" x2="${t*g.px}" y1="0" y2="${H}"/>`; if(bar&&t<g.ticks) strip+=`<span class="rbn" style="left:${t*g.px}px">${t/TICKS/L+1}</span>`; }
   rows.forEach(m=>{ const out=!inSc(k0,mod(m)); keys+=`<div class="rk${out?' out':''}${mod(m)===0?' c':''}" data-m="${m}" style="height:${g.rowH}px"><b>${esc(nm(k0,m))}${mod(m)===0?Math.floor(m/12)-1:''}</b><span>${inKey(k0,()=>degOf(m))}</span></div>`; });
@@ -3527,7 +3532,9 @@ function renderRoll(){
     <div class="roll-scroll" tabindex="0" aria-label="Piano roll: D draw, S select, E erase, arrows nudge" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
     <div class="roll-corner"></div><div class="roll-strip" style="height:${g.laneH}px">${strip}</div>
     <div class="roll-keys">${keys}</div><svg class="roll-body m-${ROLL_MODE}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg></div></div>`;
-  const nsc=el.querySelector('.roll-scroll'); nsc.scrollLeft=sx; nsc.scrollTop=sy; rollPx=g.px; if(hadFocus) nsc.focus({preventScroll:true}); /* a redraw keeps keyboard focus in the roll */
+  const nsc=el.querySelector('.roll-scroll'); nsc.scrollLeft=sx; nsc.scrollTop=sy;
+  /* opening the roll scrolls to the middle of the tune */
+  if(!sc){ const ms=tune.map(n=>n.m), c=ms.length?(Math.min(...ms)+Math.max(...ms))/2:72; nsc.scrollTop=Math.max(0,(g.hi-c)*g.rowH+g.laneH-nsc.clientHeight/2); } rollPx=g.px; if(hadFocus) nsc.focus({preventScroll:true}); /* a redraw keeps keyboard focus in the roll */
 }
 /* ---- roll editing: pure edits on the tune, one voice. The gestures below call them and make each gesture one undo step ---- */
 let ROLL_MODE='draw', rollSel=new Set(), LOOP_SEL=null, rollCur=null, rollPx=0, rg=null, rollTap=0;
@@ -3536,7 +3543,7 @@ function rollSnapT(t,floor=false){ if(!S.rollSnap) return Math.round(t); const s
 const rollStep=()=>S.rollSnap?slotTicks():1;
 function rollHit(x,y,g,coarse){
   const hits=[]; tune.forEach((n,i)=>{ const dy=Math.abs(y-((g.hi-n.m)*g.rowH+g.rowH/2)); if(dy>Math.max(g.rowH/2,coarse?22:0)) return;
-    const x0=n.t*g.px, x1=(n.t+n.d)*g.px, ez=coarse?22:Math.min(8,(x1-x0)/3);
+    const x0=n.t*g.px, x1=(n.t+n.d)*g.px, ez=Math.min(coarse?22:8,(x1-x0)*(coarse?.4:1/3)); /* on touch the handle reaches 22px past the end, so a short note keeps a body to drag */
     if(x>=x0&&x<x1-ez) hits.push({i,part:'body',o:0,dy}); else if(x>=x1-ez&&x<=x1+(coarse?22:0)) hits.push({i,part:'end',o:1,dy}); });
   hits.sort((a,b)=>a.o-b.o||a.dy-b.dy); if(hits.length) return {i:hits[0].i,part:hits[0].part};
   const p=rollTM(Math.max(0,x),y,g); return {t:p.t,m:clampM(p.m)};
@@ -3599,8 +3606,19 @@ function initRoll(){
     else if(!e.altKey&&ROLL_KEYS[k]) ROLL_KEYS[k]();
     else done=false;
     if(done){ e.preventDefault(); e.stopPropagation(); } });
-  el.addEventListener('pointerdown',e=>{ if(e.button>0||rg) return;
-    const g=rollGeom(), rz=e.target.closest('.rc .rz'), strip=e.target.closest('.roll-strip'), body=e.target.closest('.roll-body'), base={tune:tune.slice(),snap:snapshot(),pid:e.pointerId,x0:e.clientX,y0:e.clientY,g};
+  /* two fingers on the roll zoom (pinch) and scroll (drag), and never edit: a second finger cancels the first one's gesture */
+  const ptrs=new Map(); let pinch=null;
+  const mid=()=>{ const [a,b]=[...ptrs.values()]; return {x:(a.x+b.x)/2,y:(a.y+b.y)/2,d:Math.hypot(a.x-b.x,a.y-b.y)||1}; };
+  el.addEventListener('pointerdown',e=>{ if(e.pointerType!=='touch'||!e.target.closest('.roll-scroll')) return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size===2){ if(rg){ clearTimeout(rg.lp); tune=rg.tune; if(rg.kind==='chord'&&chords[rg.i]) chords[rg.i].beats=rg.b0; rg=null; rollBoxR=null; renderRoll(); }
+      const sc=el.querySelector('.roll-scroll'), m=mid(), box=sc.getBoundingClientRect(), keyW=rollGeom().keyW; pinch={...m,s0:rollScale,px0:rollPx,sl:sc.scrollLeft,st:sc.scrollTop,left:box.left+keyW,tick:(m.x-box.left-keyW+sc.scrollLeft)/rollPx}; e.stopImmediatePropagation(); } },true);
+  window.addEventListener('pointermove',e=>{ if(!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(!pinch||ptrs.size<2) return;
+    const m=mid(); rollScale=Math.min(4,Math.max(.25,pinch.s0*m.d/pinch.d)); renderRoll();
+    const sc=el.querySelector('.roll-scroll'); sc.scrollLeft=pinch.tick*rollPx-(m.x-pinch.left); sc.scrollTop=pinch.st-(m.y-pinch.y); e.stopImmediatePropagation(); },true);
+  const lift=e=>{ if(!ptrs.delete(e.pointerId)) return; if(pinch){ e.stopImmediatePropagation(); if(!ptrs.size) pinch=null; } };
+  window.addEventListener('pointerup',lift,true); window.addEventListener('pointercancel',lift,true);
+  el.addEventListener('pointerdown',e=>{ if(e.button>0||rg||pinch) return;
+    const g=rollGeom(), rz=e.target.closest('.roll-strip .rz'), strip=e.target.closest('.roll-strip'), body=e.target.closest('.roll-body'), base={tune:tune.slice(),snap:snapshot(),pid:e.pointerId,x0:e.clientX,y0:e.clientY,g};
     if(rz){ e.preventDefault(); const i=+rz.dataset.ci; rg={...base,kind:'chord',i,b0:chords[i].beats,st:startTicks()[i]}; return; }
     if(strip){ e.preventDefault(); const left=strip.getBoundingClientRect().left; rg={...base,kind:'loop',left,b:(e.clientX-left)/g.px/TICKS,moved:false}; return; }
     if(!body) return; e.preventDefault();
