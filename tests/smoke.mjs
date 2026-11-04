@@ -2370,6 +2370,54 @@ async function rollSuite() {
     check('roll: dragging the ruler sets a loop on bar lines', JSON.stringify(await page.evaluate(() => LOOP_SEL)) === '{"b0":0,"b1":8}', JSON.stringify(await page.evaluate(() => LOOP_SEL)));
     await page.mouse.dblclick(r.x + 3 * 12 * r.px, r.y);
     check('roll: double-tapping the ruler clears the loop', (await page.evaluate(() => LOOP_SEL)) === null); }
+  // Task 5: comfort tools
+  const tj = () => page.evaluate(() => JSON.stringify(tune.map(n => [n.t, n.d, n.m])));
+  await setRoll('C | G | Am | F', [{ t: 0, d: 6, m: 60 }, { t: 6, d: 6, m: 62 }, { t: 24, d: 12, m: 64 }, { t: 60, d: 12, m: 65 }]);
+  check('roll: box select picks the notes inside', JSON.stringify(await page.evaluate(() => { const g = rollGeom(), a = rollXY(0, 64, g), b = rollXY(30, 60, g); return [...rollBox(a.x, a.y, b.x, b.y + g.rowH, g)].sort((x, y) => x - y); })) === '[0,6,24]');
+  await page.evaluate(() => { rollSel = new Set([0, 6]); selMove(12, 2); });
+  check('roll: multi-move keeps the spacing', (await tj()) === '[[12,6,62],[18,6,64],[24,12,64],[60,12,65]]', await tj());
+  check('roll: moved notes stay selected', JSON.stringify(await page.evaluate(() => [...rollSel].sort((a, b) => a - b))) === '[12,18]');
+  await page.evaluate(() => { rollSel = new Set([12, 18]); selCopy(); selPaste(96); });
+  check('roll: copy and paste at bar 3', (await tj()) === '[[12,6,62],[18,6,64],[24,12,64],[60,12,65],[96,6,62],[102,6,64]]', await tj());
+  await setRoll('C | G | Am | F', [{ t: 0, d: 24, m: 60 }, { t: 24, d: 24, m: 62 }, { t: 48, d: 12, m: 70 }, { t: 96, d: 12, m: 71 }]);
+  await page.evaluate(() => { rollSel = new Set([0, 24]); selDup(); });
+  check('roll: duplicate a bar fills the next bar, and the bar after is untouched', (await tj()) === '[[0,24,60],[24,24,62],[48,24,60],[72,24,62],[96,12,71]]', await tj());
+  await setRoll('C', [{ t: 0, d: 12, m: 60 }, { t: 12, d: 12, m: 62 }, { t: 24, d: 12, m: 64 }]);
+  await page.evaluate(() => { rollSel = new Set([0, 12, 24]); selTranspose(1, true); });
+  check('roll: transpose by scale step stays in the key', (await tj()) === '[[0,12,62],[12,12,64],[24,12,65]]', await tj());
+  await page.evaluate(() => { selTranspose(-1); });
+  check('roll: transpose by a semitone', (await tj()) === '[[0,12,61],[12,12,63],[24,12,64]]', await tj());
+  await setRoll('C', [{ t: 1, d: 2, m: 60 }, { t: 5, d: 2, m: 62 }, { t: 13, d: 2, m: 64 }], '2');
+  await page.evaluate(() => { rollSel.clear(); selQuantize(); });
+  check('roll: quantize snaps to the grid', (await tj()) === '[[0,6,60],[6,6,62],[12,6,64]]', await tj());
+  await setRoll('C', [{ t: 0, d: 4, m: 60 }, { t: 4, d: 4, m: 62 }, { t: 8, d: 4, m: 64 }, { t: 12, d: 4, m: 65 }], '4');
+  await page.evaluate(() => { rollSel.clear(); selQuantize(); });
+  check('roll: triplets then a 16ths quantize land on 16ths with no overlap', await page.evaluate(() => tune.every((n, i) => n.t % 3 === 0 && n.d >= 3 && n.d % 3 === 0 && (!tune[i + 1] || n.t + n.d <= tune[i + 1].t))), await tj());
+  await setRoll('C | G', [{ t: 1, d: 12, m: 60 }]);
+  { const h0 = await page.evaluate(() => hist.length); await page.evaluate(() => { rollSel = new Set([1]); document.querySelector('#roll [data-rq]').click(); document.querySelector('#roll [data-rup]').click(); });
+    check('roll: each tool is one undo step', (await page.evaluate(() => hist.length)) === h0 + 2); }
+  await page.evaluate(() => { rollSel = new Set([0]); renderRoll(); });
+  check('roll: selection tools show while something is selected', await page.evaluate(() => ['data-rcopy', 'data-rpaste', 'data-rdup', 'data-rup', 'data-rdown', 'data-rdel', 'data-rq'].every(a => document.querySelector(`#roll [${a}]`))));
+  await page.evaluate(() => { document.querySelector('#roll .roll-scroll').focus(); });
+  await page.keyboard.press('e');
+  check('roll: E inside the roll picks Erase', (await page.evaluate(() => ROLL_MODE)) === 'erase');
+  await page.keyboard.press('d');
+  await page.evaluate(() => { rollSel = new Set([0]); renderRoll(); document.querySelector('#roll .roll-scroll').focus(); });
+  await page.keyboard.press('ArrowUp'); await page.keyboard.press('Shift+ArrowUp'); await page.keyboard.press('ArrowRight');
+  check('roll: arrows nudge, Shift+Up moves an octave', (await tj()) === '[[6,12,74]]', await tj());
+  await page.keyboard.press('Control+d');
+  check('roll: Ctrl+D duplicates', (await page.evaluate(() => tune.length)) === 2, await tj());
+  await page.keyboard.press('Delete');
+  check('roll: Delete removes the selection', (await page.evaluate(() => tune.length)) === 1, await tj());
+  await page.evaluate(() => { const s = document.querySelector('#rows .slot'); s.focus(); });
+  await page.keyboard.press('e');
+  check('roll: E on a chord still opens the picker', await page.evaluate(() => ROLL_MODE === 'draw' && !document.querySelector('#chordPicker, .cpick')?.hidden), await page.evaluate(() => ROLL_MODE));
+  await page.keyboard.press('Escape');
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60 }, { t: 24, d: 12, m: 62 }]);
+  { await page.evaluate(() => { ROLL_MODE = 'select'; rollSel = new Set([0]); renderRoll(); });
+    const p = await at(28, 62); await page.evaluate(([x, y]) => { const t = document.elementFromPoint(x, y); t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0 })); }, [p.x, p.y]);
+    await page.waitForTimeout(650); await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch' })), [p.x, p.y]);
+    check('roll: long-press adds to the selection', JSON.stringify(await page.evaluate(() => [...rollSel].sort((a, b) => a - b))) === '[0,24]' && (await tj()) === '[[0,12,60],[24,12,62]]', JSON.stringify(await page.evaluate(() => [...rollSel]))); }
   await ctx.close();
 }
 

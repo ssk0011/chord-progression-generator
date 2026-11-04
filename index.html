@@ -932,6 +932,9 @@ select.btn{border-radius:var(--r-pill)}
 .roll-strip .rc .rz{position:absolute;right:-1px;top:0;bottom:0;width:10px;cursor:ew-resize;touch-action:none}
 .roll-strip .rloop{position:absolute;top:0;height:12px;background:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:3px;pointer-events:none}
 .roll-strip{cursor:pointer;touch-action:none}
+.roll-body .rbox{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:var(--accent);stroke-dasharray:4 3}
+.roll-seltools{display:contents}
+.roll-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .roll-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
 .roll-tools [aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .rn.oor rect{fill:url(#none);fill:color-mix(in srgb,var(--muted) 25%,transparent);stroke:var(--muted);stroke-dasharray:3 3}
@@ -3511,17 +3514,20 @@ function renderRoll(){
     const label=`Bar ${Math.floor(b/L)+1}, beat ${+(b%L+1).toFixed(2)}: ${name}${oor?' (past the end of the chart)':` (${NOTE_FIT[f]}${car?', carried by this chord':''})`}`;
     body+=`<g class="rn${oor?' oor':' f-'+f}${rollSel.has(n.t)?' rsel':''}" data-ri="${i}" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title><rect x="${p.x}" y="${p.y}" width="${w}" height="${g.rowH}" rx="3"/><text x="${p.x+3}" y="${p.y+g.rowH/2}">${oor?'':fitLetter[f]}${w>=26?' '+esc(name):''}</text></g>`; });
   if(rollCur!=null&&rollCur<=g.ticks) body+=`<line class="rcur" x1="${rollCur*g.px}" x2="${rollCur*g.px}" y1="0" y2="${H}"/>`;
+  if(rollBoxR){ const b=rollBoxR; body+=`<rect class="rbox" x="${Math.min(b.x0,b.x1)}" y="${Math.min(b.y0,b.y1)}" width="${Math.abs(b.x1-b.x0)}" height="${Math.abs(b.y1-b.y0)}"/>`; }
   body+=`<line class="rhead" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
-  const tb=(k,l,on,tip)=>`<button type="button" class="btn small" data-rtool="${k}" aria-pressed="${on}" title="${tip}">${l}</button>`, sc=el.querySelector('.roll-scroll'), sx=sc?.scrollLeft||0, sy=sc?.scrollTop||0;
+  const tb=(k,l,on,tip)=>`<button type="button" class="btn small" data-rtool="${k}" aria-pressed="${on}" title="${tip}">${l}</button>`, sc=el.querySelector('.roll-scroll'), sx=sc?.scrollLeft||0, sy=sc?.scrollTop||0, hadFocus=!!sc&&document.activeElement===sc;
   const canSplit=rollCur!=null&&startTicks().some((t0,i)=>t0<rollCur&&rollCur<t0+cTicks(chords[i]));
   el.innerHTML=`<div class="roll-tools" role="toolbar" aria-label="Piano roll tools">${tb('draw','Draw',ROLL_MODE==='draw','Tap to add a note (D)')}${tb('select','Select',ROLL_MODE==='select','Tap to pick notes (S)')}${tb('erase','Erase',ROLL_MODE==='erase','Tap a note to remove it (E)')}
     <button type="button" class="btn small" data-rsnap aria-pressed="${!!S.rollSnap}" title="Snap notes to the grid (N)">Snap</button>
     <button type="button" class="btn small" data-rundo ${hist.length?'':'disabled'}>Undo</button><button type="button" class="btn small" data-rredo ${fut.length?'':'disabled'}>Redo</button>
-    <button type="button" class="btn small" data-rsplit ${canSplit?'':'disabled'} title="Split the chord where you last tapped">Split chord here</button></div>
-    <div class="roll-scroll" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
+    <button type="button" class="btn small" data-rsplit ${canSplit?'':'disabled'} title="Split the chord where you last tapped">Split chord here</button>
+    <button type="button" class="btn small" data-rq title="Line the ${rollSel.size?'chosen notes':'notes'} up with the grid (Q)">Quantize</button>${rollSel.size?`
+    <span class="roll-seltools"><button type="button" class="btn small" data-rcopy title="Ctrl+C">Copy</button><button type="button" class="btn small" data-rpaste ${ROLL_CLIP?'':'disabled'} title="Paste where you last tapped (Ctrl+V)">Paste</button><button type="button" class="btn small" data-rdup title="Ctrl+D">Duplicate</button><button type="button" class="btn small" data-rup aria-label="Up a ${ROLL_STEPS?'scale step':'half step'}">Up</button><button type="button" class="btn small" data-rdown aria-label="Down a ${ROLL_STEPS?'scale step':'half step'}">Down</button><button type="button" class="btn small" data-rsteps aria-pressed="${ROLL_STEPS}" title="Up and Down move by scale steps">Scale steps</button><button type="button" class="btn small" data-rdel>Delete</button></span>`:''}</div>
+    <div class="roll-scroll" tabindex="0" aria-label="Piano roll: D draw, S select, E erase, arrows nudge" style="--keyw:${g.keyW}px;--laneh:${g.laneH}px"><div class="roll-grid" style="grid-template-columns:${g.keyW}px ${W}px">
     <div class="roll-corner"></div><div class="roll-strip" style="height:${g.laneH}px">${strip}</div>
     <div class="roll-keys">${keys}</div><svg class="roll-body m-${ROLL_MODE}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg></div></div>`;
-  const nsc=el.querySelector('.roll-scroll'); nsc.scrollLeft=sx; nsc.scrollTop=sy; rollPx=g.px;
+  const nsc=el.querySelector('.roll-scroll'); nsc.scrollLeft=sx; nsc.scrollTop=sy; rollPx=g.px; if(hadFocus) nsc.focus({preventScroll:true}); /* a redraw keeps keyboard focus in the roll */
 }
 /* ---- roll editing: pure edits on the tune, one voice. The gestures below call them and make each gesture one undo step ---- */
 let ROLL_MODE='draw', rollSel=new Set(), LOOP_SEL=null, rollCur=null, rollPx=0, rg=null, rollTap=0;
@@ -3542,6 +3548,29 @@ function noteSize(i,d){ const n=tune[i]; if(!n) return; const {t,m,...rest}=n; d
 function splitChordAt(t){ const st=startTicks(), i=chords.findIndex((c,j)=>st[j]<t&&t<st[j]+cTicks(c)); if(i<0) return false;
   pushHist(); const c=chords[i], n={...c,id:uid(),beats:(st[i]+cTicks(c)-t)/TICKS}; delete n.br; delete n.sec; delete n.kc; c.beats=(t-st[i])/TICKS;
   chords.splice(i+1,0,n); sel=n.id; commit(); toast(`Split ${real(c)?chordName(c):'the chord'} at bar ${Math.floor(t/TICKS/barLen())+1}`); return true; }
+/* ---- selection tools; each is one undo step when called through rollTool ---- */
+let ROLL_CLIP=null, ROLL_STEPS=false, rollBoxR=null;
+const selNotes=()=>tune.filter(n=>rollSel.has(n.t));
+function rollBox(x0,y0,x1,y1,g){ const l=Math.min(x0,x1), r=Math.max(x0,x1), t=Math.min(y0,y1), b=Math.max(y0,y1);
+  return new Set(tune.filter(n=>{ const y=(g.hi-n.m)*g.rowH; return n.t*g.px<r&&(n.t+n.d)*g.px>l&&y<b&&y+g.rowH>t; }).map(n=>n.t)); }
+/* takes the chosen notes out and puts them back changed; later notes win where they collide, and the moved ones stay selected */
+function selPlace(list,fn){ const out=new Set(list); tune=tune.filter(n=>!out.has(n)); const sel=new Set();
+  list.slice().sort((a,b)=>a.t-b.t).forEach(n=>{ const {t,d,m,...rest}=n, o=fn(n); notePut(o.t,o.d??d,o.m??m,rest); sel.add(Math.max(0,o.t)); }); rollSel=sel; }
+function selMove(dt,dm){ const l=selNotes(); if(!l.length) return; dt=Math.max(dt,-Math.min(...l.map(n=>n.t))); selPlace(l,n=>({t:n.t+dt,m:n.m+dm})); }
+function selCopy(){ const l=selNotes(); if(!l.length) return; const t0=Math.min(...l.map(n=>n.t)); ROLL_CLIP=l.map(n=>({...n,t:n.t-t0})); }
+function selPaste(t){ if(!ROLL_CLIP) return; const sel=new Set(); ROLL_CLIP.forEach(n=>{ const {t:r,d,m,...rest}=n; notePut(t+r,d,m,rest); sel.add(t+r); }); rollSel=sel; }
+/* a copy straight after the selection; a selection starting on a bar line fills whole bars, replacing what's there */
+function selDup(){ const l=selNotes(); if(!l.length) return; const t0=Math.min(...l.map(n=>n.t)), e=Math.max(...l.map(n=>n.t+n.d)), B=barLen()*TICKS;
+  const len=t0%B===0?Math.ceil(e/B)*B-t0:e-t0; if(t0%B===0) tuneClear(t0+len,t0+2*len); selCopy(); selPaste(t0+len); }
+function selTranspose(n,scale=false){ const l=selNotes(); if(!l.length||!n) return; const st=chordStarts();
+  const step=m=>{ if(!scale) return m+n; const ci=chordIdxAt(Math.floor(m.t/TICKS),st); return inKey(keyAt(Math.max(ci,0)),()=>{ const sc=scaleSet(); let p=m.m; for(let k=0;k<Math.abs(n);k++){ do p+=Math.sign(n); while(!sc.has(mod(p))&&p>21&&p<108); } return p; }); };
+  const want=new Set(l); tune=tune.map(x=>want.has(x)?{...x,m:clampM(scale?step(x):x.m+n)}:x); }
+function selQuantize(){ const s=slotTicks(), l=rollSel.size?selNotes():tune.slice(), had=rollSel.size;
+  selPlace(l,n=>{ const a=Math.round(n.t/s)*s; let b=Math.round((n.t+n.d)/s)*s; if(b<=a) b=a+s; return {t:a,d:b-a}; }); if(!had) rollSel=new Set(); }
+function selDel(){ tune=tune.filter(n=>!rollSel.has(n.t)); rollSel=new Set(); }
+function rollTool(fn){ const before=JSON.stringify(tune), snap=snapshot(); fn(); if(JSON.stringify(tune)!==before){ pushSnap(snap); commit(); } else renderRoll(); }
+const ROLL_KEYS={d:()=>{ ROLL_MODE='draw'; renderRoll(); },s:()=>{ ROLL_MODE='select'; renderRoll(); },e:()=>{ ROLL_MODE='erase'; renderRoll(); },n:()=>{ S.rollSnap=!S.rollSnap; save(); renderRoll(); },
+  q:()=>rollTool(selQuantize),Delete:()=>rollTool(selDel),Backspace:()=>rollTool(selDel),Escape:()=>{ rollSel=new Set(); renderRoll(); }};
 /* the playhead follows the newest pass that has started */
 let rollHeadOn=false;
 function rollHeadGo(){ if(!rollHeadOn){ rollHeadOn=true; requestAnimationFrame(rollHead); } }
@@ -3556,7 +3585,20 @@ function initRoll(){
     if(b.dataset.rtool){ ROLL_MODE=b.dataset.rtool; renderRoll(); }
     else if(b.hasAttribute('data-rsnap')){ S.rollSnap=!S.rollSnap; save(); renderRoll(); }
     else if(b.hasAttribute('data-rundo')) undo(); else if(b.hasAttribute('data-rredo')) redo();
-    else if(b.hasAttribute('data-rsplit')&&rollCur!=null) splitChordAt(rollCur); });
+    else if(b.hasAttribute('data-rsplit')&&rollCur!=null) splitChordAt(rollCur);
+    else if(b.hasAttribute('data-rq')) rollTool(selQuantize); else if(b.hasAttribute('data-rcopy')){ selCopy(); renderRoll(); toast('Copied'); }
+    else if(b.hasAttribute('data-rpaste')) rollTool(()=>selPaste(rollCur??0)); else if(b.hasAttribute('data-rdup')) rollTool(selDup);
+    else if(b.hasAttribute('data-rup')) rollTool(()=>selTranspose(1,ROLL_STEPS)); else if(b.hasAttribute('data-rdown')) rollTool(()=>selTranspose(-1,ROLL_STEPS));
+    else if(b.hasAttribute('data-rsteps')){ ROLL_STEPS=!ROLL_STEPS; renderRoll(); } else if(b.hasAttribute('data-rdel')) rollTool(selDel); });
+  /* shortcuts act only while focus is inside the roll, so the chart's own keys are untouched */
+  el.addEventListener('keydown',e=>{ if(e.target.matches('input,select,textarea')) return; const mod=e.metaKey||e.ctrlKey, k=e.key.length===1?e.key.toLowerCase():e.key; let done=true;
+    if(mod&&k==='c') { selCopy(); renderRoll(); } else if(mod&&k==='v') rollTool(()=>selPaste(rollCur??0)); else if(mod&&k==='d') rollTool(selDup);
+    else if(mod) done=false;
+    else if(k==='ArrowUp'||k==='ArrowDown'){ if(!rollSel.size) done=false; else { const n=k==='ArrowUp'?1:-1; rollTool(()=>e.shiftKey?selTranspose(12*n):e.altKey?selTranspose(n,true):selTranspose(n)); } }
+    else if(k==='ArrowLeft'||k==='ArrowRight'){ if(!rollSel.size) done=false; else rollTool(()=>selMove((k==='ArrowRight'?1:-1)*rollStep(),0)); }
+    else if(!e.altKey&&ROLL_KEYS[k]) ROLL_KEYS[k]();
+    else done=false;
+    if(done){ e.preventDefault(); e.stopPropagation(); } });
   el.addEventListener('pointerdown',e=>{ if(e.button>0||rg) return;
     const g=rollGeom(), rz=e.target.closest('.rc .rz'), strip=e.target.closest('.roll-strip'), body=e.target.closest('.roll-body'), base={tune:tune.slice(),snap:snapshot(),pid:e.pointerId,x0:e.clientX,y0:e.clientY,g};
     if(rz){ e.preventDefault(); const i=+rz.dataset.ci; rg={...base,kind:'chord',i,b0:chords[i].beats,st:startTicks()[i]}; return; }
@@ -3564,7 +3606,15 @@ function initRoll(){
     if(!body) return; e.preventDefault();
     const r=body.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, h=rollHit(x,y,g,coarseOf(e)); rollCur=rollSnapT(Math.max(0,Math.floor(x/g.px)),true);
     if(ROLL_MODE==='erase'){ if(h.i!=null){ pushSnap(base.snap); rollSel.delete(tune[h.i].t); noteDel(h.i); commit(); } else renderRoll(); return; }
-    if(h.i!=null){ rollSel=new Set([tune[h.i].t]); rg={...base,kind:h.part==='end'?'size':'move',i:h.i,n:tune[h.i]}; renderRoll(); return; }
+    if(h.i!=null){ const t=tune[h.i].t;
+      if(e.shiftKey){ rollSel.has(t)?rollSel.delete(t):rollSel.add(t); renderRoll(); return; }
+      const prev=new Set(rollSel), multi=ROLL_MODE==='select'&&rollSel.has(t)&&rollSel.size>1&&h.part==='body';
+      if(!multi) rollSel=new Set([t]);
+      rg={...base,kind:multi?'multi':h.part==='end'?'size':'move',i:h.i,n:tune[h.i],sel:new Set(rollSel)};
+      /* a long press on touch adds the note to the selection instead */
+      if(coarseOf(e)) rg.lp=setTimeout(()=>{ if(!rg||rg.pid!==base.pid||rg.moved) return; rollSel=prev; rollSel.has(t)?rollSel.delete(t):rollSel.add(t); tune=rg.tune; rg.kind='long'; navigator.vibrate?.(10); renderRoll(); },500);
+      renderRoll(); return; }
+    if(ROLL_MODE==='select'){ rg={...base,kind:'box',bx:x,by:y,top:r.top,left:r.left}; rollSel=new Set(); renderRoll(); return; }
     if(ROLL_MODE==='draw'){ const t=rollSnapT(h.t,true), nx=tune.find(n=>n.t>t), d=Math.max(1,Math.min(rollStep()===1?slotTicks():rollStep(),nx?nx.t-t:Infinity));
       notePut(t,d,h.m); rollSel=new Set([t]); rg={...base,kind:'draw',t,m:h.m,d0:d}; renderRoll(); return; }
     rollSel.clear(); renderRoll(); });
@@ -3572,16 +3622,21 @@ function initRoll(){
     if(rg.kind==='loop'){ const L=barLen(), b=(e.clientX-rg.left)/g.px/TICKS, lo=Math.min(b,rg.b), hi=Math.max(b,rg.b); if(Math.abs(b-rg.b)<.25) return;
       rg.moved=true; let b0=Math.max(0,Math.floor(lo/L)*L), b1=Math.ceil(hi/L)*L; if(b1<=b0) b1=b0+L; LOOP_SEL={b0,b1}; renderRoll(); return; }
     if(rg.kind==='chord'){ const c=chords[rg.i]; if(!c) return; const end=rollSnapT(rg.st+rg.b0*TICKS+dx/g.px), nt=Math.max(s,end-rg.st); if(Math.abs(dx)<3) return; c.beats=nt/TICKS; renderRoll(); return; }
+    if(rg.kind==='long') return;
+    if(Math.abs(dx)+Math.abs(dy)>6){ rg.moved=true; clearTimeout(rg.lp); }
+    if(rg.kind==='box'){ const x=e.clientX-rg.left, y=e.clientY-rg.top; rollBoxR={x0:rg.bx,y0:rg.by,x1:x,y1:y}; rollSel=rollBox(rg.bx,rg.by,x,y,g); renderRoll(); return; }
     tune=rg.tune.slice();
-    if(rg.kind==='move'){ const dt=Math.round(dx/g.px/s)*s, dm=-Math.round(dy/g.rowH); if(dt||dm) noteMove(rg.i,dt,dm); }
+    if(rg.kind==='multi'){ rollSel=new Set(rg.sel); const dt=Math.round(dx/g.px/s)*s, dm=-Math.round(dy/g.rowH); if(dt||dm) selMove(dt,dm); }
+    else if(rg.kind==='move'){ const dt=Math.round(dx/g.px/s)*s, dm=-Math.round(dy/g.rowH); if(dt||dm) noteMove(rg.i,dt,dm); }
     else if(rg.kind==='size'){ const n=rg.n, end=rollSnapT(n.t+n.d+dx/g.px); noteSize(rg.i,Math.max(s,end-n.t)); }
     else if(rg.kind==='draw'){ const end=rollSnapT(rg.t+rg.d0+dx/g.px); notePut(rg.t,Math.max(rg.d0,end-rg.t),rg.m); }
     renderRoll(); });
-  const up=e=>{ if(!rg||e.pointerId!==rg.pid) return; const r=rg; rg=null;
+  const up=e=>{ if(!rg||e.pointerId!==rg.pid) return; const r=rg; rg=null; clearTimeout(r.lp);
+    if(r.kind==='long') return; if(r.kind==='box'){ rollBoxR=null; renderRoll(); return; }
     if(r.kind==='loop'){ if(!r.moved){ const now=performance.now(); if(now-rollTap<350){ LOOP_SEL=null; rollTap=0; renderRoll(); } else rollTap=now; } resyncPlay(); return; }
     if(r.kind==='chord'){ const c=chords[r.i]; if(c&&c.beats!==r.b0){ pushSnap(r.snap); sel=c.id; commit(); toast(`${real(c)?chordName(c):'The chord'} now lasts ${fmtBeats(c.beats)} beat${c.beats!==1?'s':''}`); } return; }
-    if(JSON.stringify(tune)!==JSON.stringify(r.tune)){ const moved=tune.find(n=>!r.tune.some(o=>o.t===n.t&&o.d===n.d&&o.m===n.m)); if(moved) rollSel=new Set([moved.t]); pushSnap(r.snap); commit(); } else renderRoll(); };
-  window.addEventListener('pointerup',up); window.addEventListener('pointercancel',e=>{ if(rg&&e.pointerId===rg.pid){ tune=rg.tune; if(rg.kind==='chord'&&chords[rg.i]) chords[rg.i].beats=rg.b0; rg=null; renderAll(); } });
+    if(JSON.stringify(tune)!==JSON.stringify(r.tune)){ if(r.kind!=='multi'){ const moved=tune.find(n=>!r.tune.some(o=>o.t===n.t&&o.d===n.d&&o.m===n.m)); if(moved) rollSel=new Set([moved.t]); } pushSnap(r.snap); commit(); } else renderRoll(); };
+  window.addEventListener('pointerup',up); window.addEventListener('pointercancel',e=>{ if(rg&&e.pointerId===rg.pid){ clearTimeout(rg.lp); rollBoxR=null; tune=rg.tune; if(rg.kind==='chord'&&chords[rg.i]) chords[rg.i].beats=rg.b0; rg=null; renderAll(); } });
 }
 function gridLaneHTML(r0,r1,starts,row){
   const tk=(r1-r0)*TICKS, s=slotTicks(), L=barLen(), t0=r0*TICKS, say={4:['','e','&','a'],3:['','trip','let'],2:['','&'],1:['']}[TICKS/s]; let h='';
