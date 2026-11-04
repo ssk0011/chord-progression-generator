@@ -2388,7 +2388,10 @@ async function pathsSuite() {
         for (const p of MP_PATHS) { const of = p.variants(ctx); for (let v = 0; v < of; v++) { const r = p.run(ctx, v); out.runs++; if (!r) continue; out.ids.push(p.id); const l = r.notes;
           let why = !Array.isArray(l) ? 'not a list' : l.some((a, i) => l[i + 1] && a.t > l[i + 1].t) ? 'not sorted' : l.some(a => !(a.d > 0)) ? 'a note with no length' : l.some((a, i) => l[i + 1] && a.t + a.d > l[i + 1].t) ? 'notes overlap'
             : outside(l) !== outside(tune) ? 'changed a note outside the stretch' : edge.some(e => !l.some(x => x.t === e.t && x.d === e.d && x.m === e.m)) ? 'moved a note crossing the edge' : !r.words ? 'no words' : null;
-          if (!why) { const x = mpTry(p, v, of, ctx, src, base); if (x) { out.offered++; if (!mpAs({ ...mpChart(), tune: x.notes }, () => mpFits(x.notes, ctx.style, L)).ok) why = 'offered but outside the style'; } }
+          /* an offered variant only puts in lengths and pitches the original uses, or ones it took out of the stretch (checked here directly, not through mpFits) */
+          if (!why) { const x = mpTry(p, v, of, ctx, src, base); if (x) { out.offered++; const st = ctx.style, same = (a, b) => a.t === b.t && a.d === b.d && a.m === b.m, add = x.notes.filter(n => !tune.some(y => same(n, y))), gone = tune.filter(n => !x.notes.some(y => same(n, y)));
+            why = add.some(n => !st.lengths.has(n.d) && !gone.some(g => g.d === n.d)) ? 'offered with a new note length' : add.some(n => (n.m < st.lo - 2 || n.m > st.hi + 2) && !gone.some(g => g.m === n.m)) ? 'offered outside the range'
+              : !st.chrom && add.some(n => mpOut(n) && !gone.some(g => g.m === n.m)) ? 'offered outside the scale' : add.some(n => n.t < t0 || n.t >= t1) ? 'offered a note outside the stretch' : null; } }
           if (why && !out.fail) out.fail = { meter: S.meter, at: t0 + '-' + t1, id: p.id + v, why, notes: JSON.stringify(l) }; } } }
       if (JSON.stringify(tune) !== keep) out.fail = out.fail || { why: 'the tune itself changed' };
       return out; }, f);
@@ -2448,13 +2451,83 @@ async function pathsSuite() {
   check('paths: newjob words use plain interval names', nj.length > 0 && nj.every(j => /becomes the (root|bass note|(minor|major|flat|sharp|diminished) \d+(st|nd|rd|th)|\d+(st|nd|rd|th)) of/.test(j.why) && !/[♭♯°]/.test(j.why.split(' of ')[0])), JSON.stringify(nj));
   check('paths: newjob suggests a chord that keeps the note', nj.length >= 1 && nj.length <= 3 && nj.every(j => j.pcs.includes(7) && j.idx === 0 && /^G becomes the .+ of .+: same note, /.test(j.why)), JSON.stringify(nj));
   await page.evaluate(() => { const s = document.querySelector('#breakaway [data-mp=at]'); s.value = '0'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+  if (await page.locator('#breakaway [data-mp=more]').count()) await page.click('#breakaway [data-mp=more]');
   check('paths: newjob chords are listed with Hear and Try', await page.locator('#breakaway .mp-paths [data-mp=tryj]').count() >= 1 && /^Try /.test(await page.textContent('#breakaway .mp-paths [data-mp=tryj]')));
   check('paths: Work on lists phrases and the whole tune', await page.evaluate(() => { const o = [...document.querySelectorAll('#breakaway [data-mp=at] option')].map(x => x.textContent); return o.at(-1) === 'Whole tune' && /^Bars? \d/.test(o[0]); }));
   await fresh('steps');
   check('paths: newjob offers nothing without a repeated or held note', await page.evaluate(() => mpNewJob(0, 48).length === 0 && mpNewJob(0, 192).length === 0));
   check('paths: the why uses the right article', await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 62 }]; chords = parseProg('C').chords; const w = mpWhy({ t0: 0, t1: 48 }).say[2], f = mpTen(tune[0]).fit; return f === 'ext' ? w.endsWith(': an extension.') : f === 'pass' ? w.endsWith(': a passing note.') : 'fit ' + f; }) === true);
-  await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('C | G | Am | F').chords; tune = []; S.showMel = true; S.simple = false; commit(); BA = null; baToggle(); });
+  await fresh('steps');
+  await page.evaluate(() => { pushHist(); tune = []; commit(); });
   check('paths: empty stretch says add a tune', (await page.textContent('#breakaway')).includes('Add a tune to see its shape and paths.') && await page.locator('#breakaway .mp-paths').count() === 0);
+  // Final review fixes
+  /* 1: a hand edit only counts against a path when the path adds it; added = notes the path puts in, gone = notes it takes out */
+  const mpDiff = () => page.evaluate(() => { window.mpAdded = (l, was = tune) => l.filter(n => !was.some(x => x.t === n.t && x.d === n.d && x.m === n.m)); });
+  await fresh('steps'); await mpDiff();
+  const he = await page.evaluate(() => { pushHist(); tune = tune.filter(n => n.t !== 108).map(n => n.t === 96 ? { ...n, d: 24 } : n); commit(); /* a half note in bar 3, outside bar 1 */
+    const a = mpPathsFor(0, 48); return { n: a.length, lens: [...new Set(a.flatMap(x => mpAdded(x.notes).map(n => n.d)))], ui: document.querySelectorAll('#breakaway .mp-paths>li').length }; });
+  check('paths: an out-of-style hand edit outside the stretch still leaves paths for it', he.n > 0 && JSON.stringify(he.lens) === '[12]', JSON.stringify(he));
+  const hi = await page.evaluate(() => { tune = [...q4([60, 62]), { t: 24, d: 24, m: 64 }, ...q4([67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60], 48)]; commit(); /* a half note inside bar 1 */
+    function q4(ms, t0 = 0) { return ms.map((m, i) => ({ t: t0 + i * 12, d: 12, m })); }
+    const out = [[0, 48], [0, 192]].map(([t0, t1]) => { const a = mpPathsFor(t0, t1); return { n: a.length, bad: a.filter(x => { const gone = mpAdded(tune, x.notes); return mpAdded(x.notes).some(n => n.d !== 12 && !gone.some(g => g.d === n.d)); }).map(x => x.id), kept: a.filter(x => x.notes.some(n => n.t === 24 && n.d === 24 && n.m === 64)).length }; });
+    return out; });
+  check('paths: an out-of-style note inside the stretch, untouched by a path, does not block it', hi.every(o => o.n > 0 && !o.bad.length) && hi.some(o => o.kept > 0), JSON.stringify(hi));
+  check('paths: fits judges only what a path adds', await page.evaluate(() => { const st = mpStyle(mpSrc()), add16 = tune.map(n => n.t === 0 ? { ...n, d: 3 } : n);
+    return mpFits(tune, st, 4, tune, 0, 48).ok && !mpFits(add16, st, 4, tune, 0, 48).ok && !mpFits(tune, st, 4).ok && mpBand(0) === 'none' && mpBand(.5) === 'heavy' && mpMaxLeap(tune, 4) === mpStyle(mpChart()).maxLeap; }));
+  /* 2: Stop comparing takes the ghost with it */
+  await fresh('steps');
+  await page.click('#breakaway .mp-paths [data-mp=show]');
+  const g2 = await page.locator('#roll .ghost').count();
+  await page.click('#breakaway [data-ba=stop]');
+  check('paths: Stop comparing clears the ghost', g2 > 0 && await page.locator('#roll .ghost').count() === 0 && await page.evaluate(() => !mpFresh() && mpItem === null), String(g2));
+  /* 3: an original with chords only */
+  await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg('C | G | Am | F').chords; tune = []; S.showMel = true; S.simple = false; S.melView = 'roll'; commit(); BA = null; baToggle(); });
+  await page.evaluate(t => { pushHist(); tune = t; commit(); }, MP_FIX.steps[3]);
+  const co = await page.evaluate(() => ({ text: document.querySelector('#breakaway').textContent, items: document.querySelectorAll('#breakaway .mp-paths>li').length, rows: [...document.querySelectorAll('#breakaway .mp-close .mp-row .mp-lab')].map(e => e.textContent), line: mpStyleLine(mpStyle(mpSrc())) }));
+  check('paths: a chords-only original says there is no tune to move away from', co.text.includes('The original has no tune, so there’s nothing to move away from yet.') && co.items === 0 && JSON.stringify(co.rows) === '["Chord changes"]' && !/original’s style/.test(co.text), JSON.stringify({ ...co, text: co.text.slice(0, 300) }));
+  check('paths: the style line never prints a range with no notes', !/ to |C-1/.test(co.line), co.line);
+  /* 4: a 128-bar song re-renders quickly after an edit */
+  const big = await page.evaluate(() => { S.tonic = 0; S.mode = 'ionian'; S.meter = '4/4'; chords = parseProg(Array(32).fill('C | G | Am | F').join(' | ')).chords; const one = [60, 62, 64, 65, 67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60];
+    tune = Array.from({ length: 32 }, (_, k) => one.map((m, i) => ({ t: k * 192 + i * 12, d: 12, m }))).flat(); S.showMel = true; S.simple = false; S.melView = 'roll'; commit(); BA = null; baToggle(); document.querySelector('#toast').hidden = true;
+    const time = f => { const t = performance.now(); f(); return performance.now() - t; }, edit = [], still = [], all = [];
+    for (let k = 0; k < 3; k++) { tune = tune.map((n, i) => i === 5 + k ? { ...n, m: n.m + 1 } : n); edit.push(time(() => renderBreak())); still.push(time(() => renderBreak())); tune = tune.map((n, i) => i === 9 + k ? { ...n, m: n.m - 1 } : n); all.push(time(() => commit())); }
+    const med = a => a.slice().sort((x, y) => x - y)[1]; return { bars: chartTicks() / 48, edit: med(edit), still: med(still), commit: med(all), raw: { edit, still, all } }; });
+  console.log('paths timing (128 bars):', JSON.stringify(big));
+  check('paths: a 128-bar song re-renders after an edit in under 250 ms', big.bars === 128 && big.edit < 250 && big.still < 250, JSON.stringify(big));
+  /* 5: More paths, and Show takes you to the ghost */
+  await fresh('steps');
+  const mo = await page.evaluate(() => ({ shown: document.querySelectorAll('#breakaway .mp-paths>li').length, all: document.querySelector('#breakaway')._mp.items.length + (document.querySelector('#breakaway')._mp.jobs.length ? 1 : 0), more: document.querySelector('#breakaway [data-mp=more]')?.textContent || '' }));
+  await page.click('#breakaway [data-mp=more]').catch(() => {});
+  const mo2 = await page.evaluate(() => document.querySelectorAll('#breakaway .mp-paths>li').length);
+  check('paths: the first 3 paths show, then More paths reveals the rest', mo.all > 3 && mo.shown === 3 && mo.more === `More paths (${mo.all - 3})` && mo2 === mo.all, JSON.stringify([mo, mo2]));
+  await page.evaluate(() => { const P = document.querySelector('#breakaway')._mp; mpGhost(P.items.at(-1)); P.more = false; renderRoll(); renderBreak(); });
+  check('paths: the item with the ghost shows even past the first 3', await page.evaluate(() => !!document.querySelector('#breakaway .mp-paths>li.on')));
+  /* 6: the why's tension line, chord changes and strong beats */
+  await fresh('repeat');
+  const sp = await page.evaluate(() => { const svg = document.querySelector('#breakaway .mp-why .mp-spark'), at = document.querySelector('#breakaway')._mp.at, ns = tune.filter(n => n.t >= at.t0 && n.t < at.t1);
+    const pts = svg ? [...svg.querySelectorAll('.mp-pt')] : []; return { n: pts.length, want: ns.length, label: svg?.getAttribute('aria-label') || '', ys: [...new Set(pts.slice(0, 24).map(p => p.dataset.v))], same: ns.slice(0, 24).every(n => n.m === 67) }; });
+  check('paths: the why draws a tension line, one point per note, with a summary', sp.n > 0 && sp.n === sp.want && /^Tension over bars? \d/.test(sp.label) && /starts|peaks|ends/.test(sp.label), JSON.stringify(sp));
+  check('paths: the tension line moves while the note stays the same', sp.same && sp.ys.length > 1, JSON.stringify(sp.ys));
+  await fresh('sync');
+  const hr = await page.evaluate(() => [...document.querySelectorAll('#breakaway .mp-why p')].map(p => p.textContent).join(' | '));
+  check('paths: the why names the chord pair the song leans on', /Chords change every bar\. The song leans on IV and I \(3 times\)\./.test(hr), hr);
+  await fresh('steps');
+  const sb = await page.evaluate(() => [...document.querySelectorAll('#breakaway .mp-why p')].map(p => p.textContent).join(' | '));
+  check('paths: the why names the notes on the strong beats', /On the strong beats: C, E, G, E, A, F, F, D\./.test(sb), sb);
+  /* 7: the ghost draws only what the path changes */
+  const g7 = await page.evaluate(() => { const P = document.querySelector('#breakaway')._mp, x = P.items.find(x => mpAdded(x.notes).length === 1 && mpAdded(tune, x.notes).length === 1); if (!x) return null;
+    mpGhost(x); renderRoll(); return { id: x.id, ghost: document.querySelectorAll('#roll .ghost').length, gone: [...document.querySelectorAll('#roll .rn.gone')].map(g => g.getAttribute('aria-label')) }; });
+  check('paths: the ghost draws only the notes the path changes', !!g7 && g7.ghost === 1 && g7.gone.length === 1 && /changed by the path/.test(g7.gone[0]), JSON.stringify(g7));
+  await page.evaluate(() => { mpWhyOpen = true; renderBreak(); document.querySelector('#toast').hidden = true; document.querySelector('#roll .ghost')?.scrollIntoView({ block: 'center' }); });
+  await page.screenshot({ path: path.join(OUT, 'paths-1280-ghost.png') });
+  await page.locator('#breakaway').screenshot({ path: path.join(OUT, 'paths-1280-panel.png') });
+  await page.evaluate(() => { mpWhyOpen = false; });
+  /* 8: Hear after can be stopped with the transport */
+  await fresh('steps');
+  await page.click('#breakaway .mp-paths [data-mp=after]');
+  const h8 = await page.evaluate(() => [playing, document.querySelector('#play').textContent.trim()]);
+  await page.click('#play');
+  check('paths: Hear after plays like other playback, and Stop stops it', h8[0] === true && h8[1] === 'Stop' && await page.evaluate(() => !playing), JSON.stringify(h8));
   await page.evaluate(() => { BA = null; baStore(); S.melView = 'lane'; });
   check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
@@ -2474,6 +2547,33 @@ async function pathsSuite() {
   await fone.page.locator('#breakaway .mp-paths [data-mp=take]').first().tap();
   check('paths phone: Show then Take works by tap', pg > 0 && await fone.page.evaluate(() => JSON.stringify(tune)) !== pt0 && await fone.page.locator('#roll .ghost').count() === 0, String(pg));
   await fone.page.screenshot({ path: path.join(OUT, 'paths-375.png'), fullPage: false });
+  /* final review 5: at most 3 paths before More, Show brings the ghost on screen, and a sticky bar above the Play bar takes, tosses or goes back */
+  await fone.page.evaluate(() => { undo(); document.querySelector('#toast').hidden = true; window.scrollTo(0, 0); });
+  const pm = await fone.page.evaluate(() => ({ shown: document.querySelectorAll('#breakaway .mp-paths>li').length, more: document.querySelector('#breakaway [data-mp=more]')?.textContent || '', bar: document.querySelectorAll('#roll .mp-bar').length }));
+  check('paths phone: at most 3 paths show before More', pm.shown > 0 && pm.shown <= 3 && /^More paths \(\d+\)$/.test(pm.more) && pm.bar === 0, JSON.stringify(pm));
+  const pt1 = await fone.page.evaluate(() => JSON.stringify(tune));
+  await fone.page.locator('#breakaway .mp-paths [data-mp=show]').first().tap();
+  await fone.page.waitForTimeout(1200);
+  const pv = await fone.page.evaluate(() => { const g = document.querySelector('#roll .ghost'), b = document.querySelector('#roll .mp-bar'), d = document.querySelector('#dock').getBoundingClientRect(), tl = document.querySelector('#roll .roll-tools').getBoundingClientRect(); if (!g || !b) return { g: !!g, b: !!b };
+    const r = g.getBoundingClientRect(), s = b.getBoundingClientRect(); return { ghost: [r.top, r.bottom], bar: [s.top, s.bottom], dock: d.top, tools: [tl.top, tl.bottom], name: b.textContent, hs: [...b.querySelectorAll('button')].map(x => Math.round(x.getBoundingClientRect().height)) }; });
+  check('paths phone: after Show the ghost is on screen', !!pv.ghost && pv.ghost[0] >= 0 && pv.ghost[1] <= pv.bar[0], JSON.stringify(pv));
+  check('paths phone: the sticky bar sits above the Play bar, clear of the roll tools', !!pv.bar && pv.bar[1] <= pv.dock + 1 && pv.bar[0] > 0 && pv.hs.length === 3 && pv.hs.every(h => h >= 44) && /Take/.test(pv.name) && /Back to paths/.test(pv.name) && !(pv.bar[0] < pv.tools[1] && pv.bar[1] > pv.tools[0] && pv.tools[1] <= pv.dock), JSON.stringify(pv));
+  await fone.page.screenshot({ path: path.join(OUT, 'paths-375-ghost.png'), fullPage: false });
+  await fone.page.evaluate(() => { mpWhyOpen = true; renderBreak(); });
+  await fone.page.locator('#breakaway').screenshot({ path: path.join(OUT, 'paths-375-panel.png') });
+  await fone.page.evaluate(() => { mpWhyOpen = false; renderBreak(); });
+  await fone.page.locator('#roll .mp-bar [data-mpbar=back]').tap();
+  await fone.page.waitForTimeout(1200);
+  check('paths phone: Back to paths scrolls to the path', await fone.page.evaluate(() => { const r = document.querySelector('#breakaway .mp-paths>li.on')?.getBoundingClientRect(); return !!r && r.top >= 0 && r.top < innerHeight; }));
+  await fone.page.evaluate(() => { document.querySelector('#toast').hidden = true; });
+  await fone.page.locator('#roll .mp-bar [data-mpbar=take]').tap();
+  const pt2 = await fone.page.evaluate(() => [JSON.stringify(tune), document.querySelectorAll('#roll .mp-bar').length, document.querySelectorAll('#roll .ghost').length]);
+  await fone.page.evaluate(() => undo());
+  check('paths phone: the sticky Take works by tap and is one undo step', pt2[0] !== pt1 && pt2[1] === 0 && pt2[2] === 0 && await fone.page.evaluate(() => JSON.stringify(tune)) === pt1, JSON.stringify(pt2.slice(1)));
+  await fone.page.locator('#breakaway .mp-paths [data-mp=show]').first().tap();
+  await fone.page.evaluate(() => setSimple(true));
+  check('paths phone: no sticky bar in Simple view', await fone.page.locator('#roll .mp-bar').count() === 0);
+  await fone.page.evaluate(() => setSimple(false));
   await fone.page.evaluate(() => { BA = null; baStore(); });
   check('no console errors (paths phone)', fone.page.errors.length === 0, fone.page.errors.join(' | '));
   await fone.ctx.close();
