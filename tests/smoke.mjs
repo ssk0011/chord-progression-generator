@@ -2266,6 +2266,24 @@ async function rollSuite() {
   { const a = []; for (const [ch, k] of [['Gm7', 5], ['Cm7', 10]]) { await load(ch, k); const sh = k - 5; a.push(JSON.stringify(await Promise.all([61, 70, 69, 64, 66].map(m => fit(m + sh))))); }
     check('fit: same results in any key', a[0] === a[1], a.join(' vs ')); }
   check('fit: letters for every fit', JSON.stringify(await page.evaluate(() => ['tone','ext','pass','chrom','clash'].map(f => fitLetter[f] + NOTE_FIT[f]))) === JSON.stringify(['Tchord tone','Eextension','Ppassing note','Cchromatic note','!clash']));
+  // Task 2: Nashville numbers and degrees
+  const labs = fn => page.evaluate(f => chords.map(c => f === 'n' ? nashville(c) : analyze(c).num), fn);
+  await load('D D7 G Gm7', 2); const nD = await labs('n'), rD = await labs('r');
+  await load('Ab Ab7 Db Dbm7', 8); const nA = await labs('n'), rA = await labs('r');
+  check('nashville: D D7 G Gm7 in D', JSON.stringify(nD) === '["1","17","4","4m7"]' && JSON.stringify(nA) === JSON.stringify(nD), JSON.stringify([nD, nA]));
+  check('numerals: D D7 G Gm7 read the same in any key', JSON.stringify(rD) === '["I","V7/IV","IV","iv7"]' && JSON.stringify(rA) === JSON.stringify(rD), JSON.stringify([rD, rA]));
+  await load('C D/F#', 2);
+  check('nashville: out-of-key roots and slash chords', JSON.stringify(await labs('n')) === '["♭7","1/3"]', JSON.stringify(await labs('n')));
+  await load('D G', 2);
+  await page.evaluate(() => { S.labels = 'nashville'; commit(); });
+  check('nashville: shows on the chart', (await page.evaluate(() => document.querySelector('#rows .slot .nr').textContent)) === '1');
+  check('nashville: shows on the lead sheet', await page.evaluate(() => { document.querySelector('#printSheet').innerHTML = leadSheetHTML(); return document.querySelector('#printSheet .cell:not(.cont)').textContent.trim().startsWith('1'); }));
+  check('nashville: is in the label menu', await page.evaluate(() => [...document.querySelectorAll('#labelMode option')].some(o => o.value === 'nashville')));
+  await page.evaluate(() => { S.labels = 'both'; commit(); });
+  await load('C | G', 0);
+  await page.evaluate(() => { tune = [{ t: 0, d: 12, m: 60 }, { t: 12, d: 12, m: 63 }, { t: 24, d: 12, m: 66 }, { t: 48, d: 12, m: 71 }]; commit(); });
+  { const a = await page.evaluate(() => tuneDegrees()); await page.evaluate(() => transpose(3)); const b = await page.evaluate(() => tuneDegrees());
+    check('degrees: the same tune in two keys gives the same degrees', JSON.stringify(a) === '["1","♭3","♭5","7"]' && JSON.stringify(a) === JSON.stringify(b), JSON.stringify([a, b])); }
   await ctx.close();
 }
 
