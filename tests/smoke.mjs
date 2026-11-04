@@ -2356,7 +2356,7 @@ async function rollSuite() {
     await page.mouse.move(r.x, r.y); await page.mouse.down(); await page.mouse.move(r.x - 1.4 * 12 * r.px, r.y, { steps: 5 }); await page.mouse.up();
     check('roll: a chord edge drag snaps on the roll', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats))) === '[2.5,4]', JSON.stringify(await page.evaluate(() => chords.map(c => c.beats)))); }
   await load('C | G | Am', 0);
-  { await page.evaluate(() => { S.tempo = 240; S.loop = true; window._played = []; window._ps = playStyled; playStyled = (c, ...a) => { window._played.push(chordName(c)); }; LOOP_SEL = { b0: 4, b1: 8 }; playChart(); });
+  { await page.evaluate(() => { S.tempo = 240; S.loop = true; S.showMel = true; S.melView = 'roll'; commit(); window._played = []; window._ps = playStyled; playStyled = (c, ...a) => { window._played.push(chordName(c)); }; LOOP_SEL = { b0: 4, b1: 8 }; playChart(); });
     await page.waitForTimeout(1500);
     const pl = await page.evaluate(() => { stopAll(); LOOP_SEL = null; playStyled = window._ps; S.tempo = 88; return window._played; });
     check('roll: a loop plays only its bars, again and again', pl.length >= 2 && pl.every(n => n === 'G'), JSON.stringify(pl)); }
@@ -2418,6 +2418,36 @@ async function rollSuite() {
     const p = await at(28, 62); await page.evaluate(([x, y]) => { const t = document.elementFromPoint(x, y); t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0 })); }, [p.x, p.y]);
     await page.waitForTimeout(650); await page.evaluate(([x, y]) => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch' })), [p.x, p.y]);
     check('roll: long-press adds to the selection', JSON.stringify(await page.evaluate(() => [...rollSel].sort((a, b) => a - b))) === '[0,24]' && (await tj()) === '[[0,12,60],[24,12,62]]', JSON.stringify(await page.evaluate(() => [...rollSel]))); }
+  // Review fixes
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60 }, { t: 24, d: 12, m: 62 }]);
+  { await page.evaluate(() => { document.activeElement?.blur(); sel = chords[0].id; }); const p = await at(3, 60); await page.mouse.click(p.x, p.y); await page.keyboard.press('Delete');
+    check('review: clicking a note puts focus in the roll, so Delete removes the note, not the chord', (await page.evaluate(() => chords.length)) === 2 && (await tj()) === '[[24,12,62]]', `${await page.evaluate(() => chords.length)} ${await tj()}`);
+    const e = await page.evaluate(() => { const b = document.querySelector('#roll [data-rtool="erase"]').getBoundingClientRect(); return { x: b.left + 5, y: b.top + 5 }; }); await page.mouse.click(e.x, e.y); await page.keyboard.press('d');
+    check('review: after a toolbar tap the roll keys still work', (await page.evaluate(() => ROLL_MODE)) === 'draw'); }
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60, k: 'alto' }, { t: 12, d: 12, m: 62, k: 'bass' }, { t: 36, d: 12, m: 64, k: 'bass' }]);
+  await page.evaluate(() => noteMove(0, 0, 1));
+  check('review: part labels survive a roll edit', JSON.stringify(await page.evaluate(() => tune.map(n => n.k))) === '["alto","bass","bass"]', JSON.stringify(await page.evaluate(() => tune)));
+  await setRoll('C | G', [{ t: 0, d: 48, m: 60 }, { t: 60, d: 6, m: 64 }]);
+  { const p = await at(61, 64); await page.mouse.move(p.x, p.y); await page.mouse.down();
+    check('review: a roll gesture captures the pointer', await page.evaluate(() => document.querySelector('#roll').hasPointerCapture(1)));
+    await page.mouse.move(p.x - 36 * p.px, p.y, { steps: 4 }); await page.mouse.up();
+    check('review: moving a note into a long note shortens it, with no new note', (await tj()) === '[[0,24,60],[24,6,64]]', await tj());
+    check('review: the moved note stays selected', JSON.stringify(await page.evaluate(() => [...rollSel])) === '[24]', JSON.stringify(await page.evaluate(() => [...rollSel]))); }
+  await setRoll('C | G', [{ t: 0, d: 12, m: 60 }]);
+  await page.evaluate(() => { ROLL_CLIP = [{ t: 0, d: 6, m: 67 }]; rollSel = new Set(); renderRoll(); });
+  check('review: Paste is there with nothing selected', await page.evaluate(() => { const b = document.querySelector('#roll [data-rpaste]'); return !!b && !b.disabled; }));
+  await setRoll('C | G', [{ t: 0, d: 6, m: 60 }]);
+  { const p = await at(2, 60); await page.mouse.move(p.x, p.y); await page.mouse.down();
+    const n = await page.evaluate(([x, y, px]) => { let c = 0; const o = window.renderRoll; window.renderRoll = (...a) => { c++; return o(...a); }; for (let k = 1; k <= 10; k++) window.dispatchEvent(new PointerEvent('pointermove', { clientX: x + k * px, clientY: y, pointerId: 1, pointerType: 'mouse' })); window.renderRoll = o; return c; }, [p.x, p.y, p.px]);
+    await page.mouse.up(); check('review: a drag redraws at most once per frame', n <= 1, String(n)); }
+  await load('C | G | Am | F', 0);
+  { await page.evaluate(() => { S.tempo = 240; S.loop = true; S.showMel = true; S.melView = 'roll'; commit(); window._played = []; window._ps = playStyled; playStyled = c => { window._played.push(chordName(c)); }; LOOP_SEL = null; playChart(); });
+    await page.waitForTimeout(150); const n0 = await page.evaluate(() => { LOOP_SEL = { b0: 4, b1: 8 }; renderRoll(); resyncPlay(); return window._played.length; }); await page.waitForTimeout(2200);
+    const pl = await page.evaluate(n => { stopAll(); return window._played.slice(n); }, n0);
+    check('review: a loop set while playing takes effect', pl.length >= 2 && pl.every(x => x === 'G'), JSON.stringify(pl)); }
+  { await page.evaluate(() => { LOOP_SEL = { b0: 4, b1: 8 }; S.melView = 'lane'; commit(); window._played = []; playChart(); }); await page.waitForTimeout(300);
+    const pl = await page.evaluate(() => { stopAll(); playStyled = window._ps; S.tempo = 88; LOOP_SEL = null; return window._played; });
+    check('review: a loop does nothing while the roll is hidden', pl[0] === 'C', JSON.stringify(pl)); }
   // Task 6: fit contrast in both themes, then the phone
   const fitContrast = p => p.evaluate(() => { const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
     const rgb = c => { cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); return [...cv.getImageData(0, 0, 1, 1).data].slice(0, 3); };
