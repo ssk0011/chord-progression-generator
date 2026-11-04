@@ -3485,6 +3485,21 @@ function melRel(pc,ci,b){
   return inKey(keyAt(ci),()=>{ if(corePcs(c).includes(pc)||(c.bass!=null&&c.bass===pc)) return 'tone'; if(pcsOf(c).includes(pc)||scaleSet().has(pc)) return 'color'; return strongBeat(b)?'clash':'pass'; });
 }
 const MEL_REL={tone:'chord tone',color:'colour note',pass:'passing note',clash:'clash on a strong beat'};
+/* the roll's finer fit: a half step above a chord tone, or a tritone over the root, clashes when it lands on a strong
+   beat or lasts a beat; 9ths, 11ths (not over a major third) and 13ths are extensions; the rest is passing (in the key) or chromatic */
+const NOTE_FIT={tone:'chord tone',ext:'extension',pass:'passing note',chrom:'chromatic note',clash:'clash'}, fitLetter={tone:'T',ext:'E',pass:'P',chrom:'C',clash:'!'};
+function noteFit(m,ci,b,d=TICKS){
+  const pc=mod(m), c=chords[ci];
+  return inKey(keyAt(Math.max(ci,0)),()=>{ const sc=scaleSet(); if(!real(c)) return sc.has(pc)?'pass':'chrom';
+    const ct=pcsOf(c); if(c.bass!=null) ct.push(c.bass); if(ct.includes(pc)) return 'tone';
+    const iv=mod(pc-c.root), weight=(Number.isInteger(b)&&strongBeat(b))||d>=TICKS;
+    if(weight&&(iv===6||ct.includes(mod(pc-1)))) return 'clash';
+    if(iv===2||iv===9||(iv===5&&!ct.includes(mod(c.root+4)))) return 'ext'; /* an 11th over a major third is an avoid note */
+    return sc.has(pc)?'pass':'chrom'; });
+}
+/* a chord outside the key "carries" a melody note when the note is one of its tones and outside the key too */
+function carries(ci,m){ const c=chords[ci]; if(!real(c)||analyze(c).kind==='dia') return false; const pc=mod(m);
+  return inKey(keyAt(ci),()=>(pcsOf(c).includes(pc)||c.bass===pc)&&!scaleSet().has(pc)); }
 /* one cell per beat; a beat with a note on its "and" is split in two halves, each coloured on its own (the second half is
    never a strong beat, so a note outside the chord there is a passing note) */
 function melLaneHTML(r0,r1,starts,mrow=2,tag='',oor=null){

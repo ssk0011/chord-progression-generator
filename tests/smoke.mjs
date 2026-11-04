@@ -2247,6 +2247,28 @@ async function eighthNotes() {
 }
 
 // the top-bar menus must be visible and on top at every width, not just "open"
+async function rollSuite() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(URL_);
+  const load = (txt, tonic = 0) => page.evaluate(([x, k]) => { S.tonic = k; S.mode = 'ionian'; S.meter = '4/4'; S.showMel = false; S.melGrid = 'beat'; S.foldForm = false; S.simple = false; chords = parseProg(x).chords; tune = []; sel = chords[0]?.id; commit(); return chords.length; }, [txt, tonic]);
+  const fit = (m, b = 0, d = 12) => page.evaluate(([m, b, d]) => noteFit(m, chordIdxAt(Math.floor(b)), b, d), [m, b, d]);
+  // Task 1: fit labels
+  await load('Gm7', 5);
+  check('fit: C# over Gm7 is a clash', (await fit(61)) === 'clash');
+  check('fit: Bb over Gm7 is a chord tone', (await fit(70)) === 'tone');
+  check('fit: A over Gm7 is an extension', (await fit(69)) === 'ext');
+  await load('C', 0);
+  check('fit: a quick off-beat half step is passing, not a clash', (await fit(65, 1.5, 3)) === 'pass');
+  check('fit: F on beat 1 over C is a clash', (await fit(65, 0, 12)) === 'clash');
+  check('fit: Eb over C is chromatic when short and off the beat', (await fit(63, 1.5, 3)) === 'chrom');
+  await load('Fm C7 C', 0);
+  check('fit: Ab under Fm in C is carried, Bb under C7 is carried, E under C is not', JSON.stringify(await page.evaluate(() => [carries(0, 68), carries(1, 70), carries(2, 64)])) === '[true,true,false]');
+  { const a = []; for (const [ch, k] of [['Gm7', 5], ['Cm7', 10]]) { await load(ch, k); const sh = k - 5; a.push(JSON.stringify(await Promise.all([61, 70, 69, 64, 66].map(m => fit(m + sh))))); }
+    check('fit: same results in any key', a[0] === a[1], a.join(' vs ')); }
+  check('fit: letters for every fit', JSON.stringify(await page.evaluate(() => ['tone','ext','pass','chrom','clash'].map(f => fitLetter[f] + NOTE_FIT[f]))) === JSON.stringify(['Tchord tone','Eextension','Ppassing note','Cchromatic note','!clash']));
+  await ctx.close();
+}
+
 async function menus() {
   for (const [w, h, tag] of [[1440, 900, 'desktop'], [1280, 720, 'small laptop'], [900, 900, 'tablet'], [390, 844, 'phone']]) {
     const { ctx, page } = await openPage({ viewport: { width: w, height: h }, noReveal: true });
@@ -2469,6 +2491,7 @@ try {
   await tuneSuite();
   await gridSuite();
   await timelineSuite();
+  await rollSuite();
   await menus();
   await layout();
   await hardening();
