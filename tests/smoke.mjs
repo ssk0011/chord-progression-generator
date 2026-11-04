@@ -2247,6 +2247,36 @@ async function eighthNotes() {
 }
 
 // the top-bar menus must be visible and on top at every width, not just "open"
+/* melody-paths fixtures: [progression, meter, tonic, tune in ticks]; synthetic only, later tasks reuse them */
+const q = (ms, t0 = 0) => ms.map((m, i) => ({ t: t0 + i * 12, d: 12, m }));
+const MP_FIX = {
+  steps: ['C | G | Am | F', '4/4', 0, q([60, 62, 64, 65, 67, 65, 64, 62, 69, 67, 65, 64, 65, 64, 62, 60])],
+  repeat: ['C | Am | F | G', '4/4', 0, [...[0, 1, 2].flatMap(b => Array.from({ length: 8 }, (_, i) => ({ t: b * 48 + i * 6, d: 6, m: 67 }))), ...q([67, 65, 64, 62], 144)]],
+  sync: ['F | C | F | C', '4/4', 0, [[60, 62, 64, 65], [67, 69, 67, 65], [64, 62, 64, 65], [67, 65, 64, 62]].flatMap((ms, b) => [[6, 12], [18, 18], [36, 6], [42, 6]].map(([t, d], i) => ({ t: b * 48 + t, d, m: ms[i] })))],
+  waltz: ['C | G7 | C', '3/4', 0, [{ t: 0, d: 12, m: 64 }, { t: 12, d: 12, m: 62 }, { t: 24, d: 12, m: 60 }, { t: 36, d: 12, m: 62 }, { t: 60, d: 12, m: 67 }, { t: 72, d: 12, m: 64 }]],
+};
+const mpLoad = (page, name) => page.evaluate(([p, m, k, t]) => { S.tonic = k; S.mode = 'ionian'; S.meter = m; chords = parseProg(p).chords; tune = t; S.showMel = true; S.simple = false; commit(); }, MP_FIX[name]);
+async function pathsSuite() {
+  const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(URL_);
+  const ph = async (name, L) => { await mpLoad(page, name); return page.evaluate(L => mpPhrases(tune, L), L); };
+  const a = await ph('steps', 4);
+  check('paths: steps tune is one 4-bar phrase', a.length === 1 && a[0].t0 === 0 && a[0].t1 === 192, JSON.stringify(a));
+  const w = await ph('waltz', 3);
+  check('paths: a rest of a beat splits a phrase', w.length === 2, JSON.stringify(w));
+  await mpLoad(page, 'steps');
+  const sh = await page.evaluate(() => { const n = tune.filter(x => x.t < 48); return mpShape(n, mpPhrases(n, 4)[0]); });
+  check('paths: shape of bar 1 of steps is uuu', sh.steps === 'uuu' && sh.peak === 3 && sh.low === 0, JSON.stringify(sh));
+  const rs = await page.evaluate(() => mpRhythm(tune, 4));
+  await mpLoad(page, 'sync');
+  const ry = await page.evaluate(() => mpRhythm(tune, 4));
+  check('paths: sync tune reads as syncopated, steps as not', ry.sync > 0.4 && rs.sync === 0, `${ry.sync} ${rs.sync}`);
+  check('paths: sync phrases start after the bar line by 6', ry.phrases.length > 0 && ry.phrases.every(p => p.start === 'after' && p.offset === 6), JSON.stringify(ry.phrases));
+  check('paths: lengths are the ones used', JSON.stringify(rs.lengths) === '[12]' && JSON.stringify(ry.lengths) === '[6,12,18]', JSON.stringify([rs.lengths, ry.lengths]));
+  check('paths: strong beats are listed', JSON.stringify(rs.strong) === '[0,2,4,6,8,10,12,14]', JSON.stringify(rs.strong));
+  check('no console errors (paths)', page.errors.length === 0, page.errors.join(' | '));
+  await ctx.close();
+}
 async function rollSuite() {
   const { ctx, page } = await openPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(URL_);
@@ -2723,6 +2753,7 @@ try {
   await dragSuite();
   await launchSuite();
   await breakAway();
+  await pathsSuite();
   await tuneSuite();
   await gridSuite();
   await timelineSuite();

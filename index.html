@@ -3459,6 +3459,23 @@ function baClick(e){
   if(w==='flip'){ const f=baFlipped(x.i); if(f) baPutBar(x.i,f); return; }
   if(w==='late') baPutBar(x.i,baLater(x.i));
 }
+/* ============ melody paths ============ */
+/* readers for a tune: phrases, shape and rhythm; all plain maths on {t,d,m} in ticks, nothing random */
+/* phrases: a phrase ends after a rest of a beat or more, or a note of two beats or more, and never runs past 4 bars; idx are positions in notes (sorted by time) */
+function mpPhrases(notes,L){ const BT=L*TICKS, out=[]; let cur=null;
+  notes.forEach((n,i)=>{ if(cur&&(n.t-notes[cur.idx[cur.idx.length-1]].t-notes[cur.idx[cur.idx.length-1]].d>=TICKS||Math.floor(n.t/BT)-Math.floor(cur.t0/BT)>=4)){ out.push(cur); cur=null; }
+    if(!cur) cur={t0:n.t,t1:n.t+n.d,idx:[]}; cur.idx.push(i); cur.t1=n.t+n.d;
+    if(n.d>=2*TICKS){ out.push(cur); cur=null; } });
+  if(cur) out.push(cur); return out; }
+/* shape: one letter per interval (u up, d down, s same); peak and low are note indexes, the earliest on a tie */
+function mpShape(notes,ph){ let steps='', peak=ph.idx[0], low=ph.idx[0];
+  ph.idx.forEach((i,k)=>{ const m=notes[i].m; if(m>notes[peak].m) peak=i; if(m<notes[low].m) low=i; if(k){ const d=m-notes[ph.idx[k-1]].m; steps+=d>0?'u':d<0?'d':'s'; } });
+  return {steps,peak,low}; }
+/* rhythm: how off the beat it sits, the lengths used, how each phrase lands on the bar line, and which notes fall on strong beats */
+function mpRhythm(notes,L){ const BT=L*TICKS, ph=mpPhrases(notes,L);
+  return {sync:notes.length?notes.filter(n=>n.t%TICKS!==0).length/notes.length:0, lengths:[...new Set(notes.map(n=>n.d))].sort((a,b)=>a-b),
+    phrases:ph.map(p=>{ const r=p.t0%BT, before=r&&BT-r<=TICKS, beats=(p.t1-p.t0)/TICKS; return {start:!r?'on':before?'before':'after', offset:before?BT-r:r, beats, density:p.idx.length/beats}; }),
+    strong:notes.map((n,i)=>i).filter(i=>notes[i].t%TICKS===0&&strongBeat(notes[i].t/TICKS))}; }
 /* ============ a tune from the Harmonize box ============ */
 /* it goes in from the bar in hand and replaces only the stretch it covers; the box says which bars before anything is written */
 let laneBar=null, laneTok=''; /* the beat last clicked in the chart, chord or note, until the selection moves on */
